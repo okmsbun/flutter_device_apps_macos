@@ -1,7 +1,7 @@
 # Android API compatibility on macOS
 
 Assessment for Mac mini M4 on current macOS, using public Apple APIs.
-This is an implementation plan; the APIs below are not implemented yet.
+`listApps` is implemented. Remaining APIs are planned; see [TODO](../TODO.md).
 
 ## Scope and identity
 
@@ -27,7 +27,7 @@ means the Android contract should not be copied into the macOS API.
 
 | Android API | macOS assessment | Implementation and limits |
 | --- | --- | --- |
-| `listApps` | Limited | Scan configured accessible roots for `.app` bundles; optionally supplement with Spotlight. Results are scoped to discovery locations, not guaranteed to cover the entire Mac. |
+| `listApps` | Implemented with limits | Scans four standard application directories and non-package subdirectories. No Spotlight or custom roots in the current API. Results are limited to accessible bundles in those locations. |
 | `getApp` | Supported within lookup scope | Resolve a bundle ID with NSWorkspace, or inspect an explicit app URL. Read `Info.plist` for name, bundle ID, and versions. A missing result does not prove no copy exists elsewhere. |
 | `getApps` | Supported within lookup scope | Batch the same lookups in one channel request. Define order, missing entries, and how duplicate bundle IDs are handled. |
 | `getAppIcon` | Supported | Use `NSWorkspace.icon(forFile:)`, rasterize to a documented size, and return PNG bytes. |
@@ -49,8 +49,8 @@ means the Android contract should not be copied into the macOS API.
 | --- | --- |
 | `includeIcons` | Direct equivalent; load icons after discovery and filtering. |
 | `packageNamePrefix` / `packageNameContains` | Use `bundleIdentifierPrefix` / `bundleIdentifierContains`; document case sensitivity and AND behavior. |
-| `includeSystem` | Requires an explicit, documented definition of system locations. |
-| `onlyLaunchable` | Requires a definition for normal apps, background-only apps, and agent apps; preflight cannot promise a successful launch. |
+| `includeSystem` | Includes system discovery roots and apps whose resolved paths are in `/System`, excluding the writable `/System/Volumes/Data` subtree. This is a path heuristic, not an ownership check. |
+| `onlyLaunchable` | Requires a declared executable file with execute permission and excludes `LSBackgroundOnly` and `LSUIElement` apps. Preflight cannot promise a successful launch. |
 
 ## Sandbox and access
 
@@ -68,8 +68,8 @@ commands that are assumed to bypass the host app's access restrictions.
 
 ## Suggested implementation order
 
-1. Define `MacosAppInfo`, discovery roots, app URL identity, and duplicate handling.
-2. Implement `listApps`, `getApp`, `getApps`, and `getAppIcon`.
+1. Done: `MacosAppInfo`, standard discovery roots, app path identity, and `listApps`.
+2. Implement `getApp`, `getApps`, and `getAppIcon`.
 3. Implement scoped `isAppInstalled`, `openApp`, and `revealAppInFinder`.
 4. Add framework indicators and watched-root change events with explicit limits.
 5. Assess declared capabilities, provenance, and Trash actions as separate APIs.

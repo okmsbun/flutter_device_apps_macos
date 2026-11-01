@@ -1,4 +1,4 @@
 ## 0.1.0
 
-- Created an independent macOS plugin scaffold.
-- Documented Android API compatibility and macOS limitations.
+- Added `listApps`, `MacosAppInfo`, bundle ID filters, and optional PNG icons.
+- Added an interactive macOS example and implementation TODO list.

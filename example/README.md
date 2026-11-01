@@ -5,4 +5,5 @@ flutter pub get
 flutter run -d macos
 ```
 
-The plugin currently contains a scaffold only; app APIs are not implemented yet.
+Lists app bundles with optional icons, system apps, and bundle ID filters.
+The example keeps App Sandbox enabled and displays discovery errors and empty results.

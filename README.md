@@ -2,15 +2,38 @@
 
 Independent macOS app discovery and management plugin for Flutter.
 
-**Status:** Initial scaffold. App APIs are not implemented yet.
+Requires macOS 12+, Flutter 3.44+, and Dart 3.12+.
+No platform interface dependency. Swift Package Manager and CocoaPods are supported.
 
-- Requires macOS 12+, Flutter 3.44+, and Dart 3.12+.
-- No dependency on `flutter_device_apps_platform_interface` or `plugin_platform_interface`.
-- Swift plugin registration supports Swift Package Manager and CocoaPods.
-- Planned entry point: `FlutterDeviceAppsMacos` with static methods.
-- The umbrella package can depend on this package and export its public API.
+## List apps
 
-See the [Android API comparison](doc/api-capabilities.md) before implementing APIs.
+```dart
+import 'package:flutter_device_apps_macos/flutter_device_apps_macos.dart';
+
+final List<MacosAppInfo> apps = await FlutterDeviceAppsMacos.listApps(
+  includeSystem: false,
+  onlyLaunchable: true,
+  includeIcons: false,
+  bundleIdentifierPrefix: null, // Optional: 'com.apple.'.
+  bundleIdentifierContains: null, // Optional: 'Safari'.
+);
+```
+
+- Scans `/Applications`, `~/Applications`, `/System/Applications`, and
+  `/System/Library/CoreServices`, including non-package subdirectories.
+- Filters are case-sensitive and combined with AND; `null` or `''` disables each.
+- Returns `[]` when no apps match. Different paths with the same bundle ID remain separate.
+- Icons are optional 64×64 PNG bytes; use `Image.memory(app.iconBytes!)` to display them.
+- `isSystem` is a location heuristic. `onlyLaunchable` excludes agents,
+  background-only apps, and apps without an executable; launch success is not guaranteed.
+- App Sandbox and file access can limit discovery. Unreadable bundles are skipped;
+  `ERR_LIST` is thrown if all existing search directories are inaccessible.
+
+Call `WidgetsFlutterBinding.ensureInitialized()` when querying before `runApp()`.
+Calls from `initState()` and UI callbacks need no extra initialization.
+
+See [TODO](TODO.md) for remaining APIs and the [platform comparison](doc/api-capabilities.md)
+for macOS limitations. Umbrella package integration is deferred.
 
 ## Development
 
