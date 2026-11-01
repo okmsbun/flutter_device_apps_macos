@@ -3,7 +3,7 @@
 Independent macOS app discovery and management plugin for Flutter.
 
 Requires macOS 12+, Flutter 3.44+, and Dart 3.12+.
-No platform interface dependency. Swift Package Manager and CocoaPods are supported.
+Swift Package Manager and CocoaPods are supported.
 
 ## List apps
 
@@ -32,8 +32,8 @@ final List<MacosAppInfo> apps = await FlutterDeviceAppsMacos.listApps(
 Call `WidgetsFlutterBinding.ensureInitialized()` when querying before `runApp()`.
 Calls from `initState()` and UI callbacks need no extra initialization.
 
-See [TODO](TODO.md) for remaining APIs and the [platform comparison](doc/api-capabilities.md)
-for macOS limitations. Umbrella package integration is deferred.
+See [TODO](TODO.md) for planned APIs and [API capabilities](doc/api-capabilities.md)
+for discovery behavior and limitations.
 
 ## Development
 

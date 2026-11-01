@@ -2,9 +2,8 @@
 
 Implement and verify one API at a time in this package and its example.
 Keep the static `FlutterDeviceAppsMacos` entry point, `Future` results, optional
-named parameters, native method-channel maps, and immutable models consistent
-with the existing packages. Use macOS-specific identifiers and metadata where
-Android fields have no equivalent. Do not add a platform interface dependency.
+named parameters, native method-channel maps, and immutable models.
+Use bundle identifiers, app paths, and macOS metadata throughout the API.
 
 ## Completed
 
@@ -14,6 +13,7 @@ Android fields have no equivalent. Do not add a platform interface dependency.
   prefix and substring filters, path deduplication, optional icons, and `[]` for no matches.
 - [x] Example with filters, icons, refresh, empty results, and errors.
 - [x] Dart, widget, and native fixture tests; sandbox discovery smoke check.
+- [x] GitHub Actions for quality checks, Dart/widget tests, and native macOS tests.
 
 ## Next APIs
 
@@ -26,29 +26,22 @@ Android fields have no equivalent. Do not add a platform interface dependency.
 - [ ] `isSystemApp`: use the same documented location heuristic as `MacosAppInfo.isSystem`.
 - [ ] `isAppLaunchable`: define preflight semantics without promising launch success.
 - [ ] `openApp`: use NSWorkspace and report asynchronous launch success/errors.
-- [ ] `detectAppFrameworks`: define macOS indicators and a separate framework enum;
+- [ ] `detectAppFrameworks`: define framework indicators and a result enum;
   distinguish packaged components from the primary UI framework.
 - [ ] `appChanges`: watch accessible discovery locations, reconcile snapshots,
   and document missed/coalesced events and stream lifecycle.
-- [ ] `getRequestedPermissions`: decide on a macOS-specific declared-capabilities
-  contract; usage descriptions and entitlements do not expose other apps' TCC grants.
+- [ ] `getDeclaredCapabilities`: read usage descriptions and entitlements;
+  do not report them as another app's actual TCC grants.
 - [ ] `getInstallSourceInfo`: define a macOS-specific provenance model;
   unknown installer/source information must remain unknown.
-- [ ] `uninstallApp`: decide on an explicit `moveAppToTrash` contract and user
+- [ ] `moveAppToTrash`: define the contract and user
   confirmation; moving a bundle does not remove support files or privileged helpers.
-
-## No direct Android equivalent
-
-- [ ] `isAppEnabled`: assess whether any useful separate API is needed;
-  login-item state is not package enabled state.
-- [ ] `openAppSettings`: assess a separate `revealAppInFinder` API;
-  macOS has no documented universal per-app settings screen.
+- [ ] `revealAppInFinder`: reveal the selected app bundle using NSWorkspace.
 
 ## Later
 
 - [ ] Assess additional discovery roots and user-granted access with security-scoped bookmarks.
 - [ ] Assess Spotlight supplementation without promising complete discovery.
 - [ ] Verify release builds and CocoaPods integration before publishing.
-- [ ] Connect and export from the umbrella package only when requested.
 
-See [API capabilities](doc/api-capabilities.md) for the full comparison.
+See [API capabilities](doc/api-capabilities.md) for discovery behavior and limitations.

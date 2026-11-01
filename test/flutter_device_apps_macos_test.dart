@@ -27,20 +27,17 @@ void main() {
   });
 
   group('listApps', () {
-    test(
-      'forwards the Android-style defaults on the independent channel',
-      () async {
-        expect(await FlutterDeviceAppsMacos.listApps(), isEmpty);
-        expect(calls.single.method, 'listApps');
-        expect(calls.single.arguments, {
-          'includeSystem': false,
-          'onlyLaunchable': true,
-          'includeIcons': false,
-          'bundleIdentifierPrefix': null,
-          'bundleIdentifierContains': null,
-        });
-      },
-    );
+    test('forwards default options on the macOS method channel', () async {
+      expect(await FlutterDeviceAppsMacos.listApps(), isEmpty);
+      expect(calls.single.method, 'listApps');
+      expect(calls.single.arguments, {
+        'includeSystem': false,
+        'onlyLaunchable': true,
+        'includeIcons': false,
+        'bundleIdentifierPrefix': null,
+        'bundleIdentifierContains': null,
+      });
+    });
 
     test(
       'forwards all options without trimming case-sensitive filters',

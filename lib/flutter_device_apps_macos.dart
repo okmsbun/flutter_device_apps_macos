@@ -8,8 +8,6 @@ import 'macos_app_info.dart';
 export 'macos_app_info.dart' show MacosAppInfo;
 
 /// Lists installed macOS app bundles from standard application directories.
-///
-/// Methods and models are owned by this package without a platform interface.
 abstract final class FlutterDeviceAppsMacos {
   static const MethodChannel _mch = MethodChannel(
     'flutter_device_apps_macos/methods',
