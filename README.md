@@ -14,6 +14,9 @@ final List<MacosAppInfo> apps = await FlutterDeviceAppsMacos.listApps(
   includeSystem: false,
   onlyLaunchable: true,
   includeIcons: false,
+  includeArchitectures: false,
+  includeSize: false,
+  includeSigningInfo: false,
   bundleIdentifierPrefix: null, // Optional: 'com.apple.'.
   bundleIdentifierContains: null, // Optional: 'Safari'.
 );
@@ -24,6 +27,9 @@ final List<MacosAppInfo> apps = await FlutterDeviceAppsMacos.listApps(
 - Filters are case-sensitive and combined with AND; `null` or `''` disables each.
 - Returns `[]` when no apps match. Different paths with the same bundle ID remain separate.
 - Icons are optional 64×64 PNG bytes; use `Image.memory(app.iconBytes!)` to display them.
+- `isAgent` and `isBackgroundOnly` describe bundle declarations.
+- Architectures, logical bundle size, and signature Team ID are optional;
+  unavailable values are `null`. Size calculation can be expensive.
 - `isSystem` is a location heuristic. `onlyLaunchable` excludes agents,
   background-only apps, and apps without an executable; launch success is not guaranteed.
 - App Sandbox and file access can limit discovery. Unreadable bundles are skipped;

@@ -18,6 +18,11 @@ void main() {
         'bundleIdentifier': 'com.example.editor',
         'appPath': '/Applications/Editor.app',
         'versionName': '1.2.0',
+        'isAgent': false,
+        'isBackgroundOnly': false,
+        'supportedArchitectures': ['arm64', 'x86_64'],
+        'bundleSizeBytes': 4096,
+        'teamIdentifier': 'EXAMPLE123',
       },
     ];
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -43,6 +48,11 @@ void main() {
     expect(find.textContaining('/Applications/Editor.app'), findsOneWidget);
     expect(find.text('1 app'), findsOneWidget);
     expect((calls.single.arguments as Map)['onlyLaunchable'], isTrue);
+    expect((calls.single.arguments as Map)['includeArchitectures'], isFalse);
+    expect((calls.single.arguments as Map)['includeSize'], isFalse);
+    expect((calls.single.arguments as Map)['includeSigningInfo'], isFalse);
+    expect(find.textContaining('Agent: false'), findsOneWidget);
+    expect(find.textContaining('Architectures:'), findsNothing);
   });
 
   testWidgets('applies bundle ID filters and reloads with selected options', (
@@ -68,6 +78,36 @@ void main() {
     await tester.tap(find.text('Only launchable'));
     await tester.pumpAndSettle();
     expect((calls.last.arguments as Map)['onlyLaunchable'], isFalse);
+    await tester.tap(find.text('Architectures'));
+    await tester.pumpAndSettle();
+    expect((calls.last.arguments as Map)['includeArchitectures'], isTrue);
+    expect(find.textContaining('Architectures: arm64, x86_64'), findsOneWidget);
+    await tester.tap(find.text('Size'));
+    await tester.pumpAndSettle();
+    expect((calls.last.arguments as Map)['includeSize'], isTrue);
+    expect(find.textContaining('Bundle size: 4096 bytes'), findsOneWidget);
+    await tester.tap(find.text('Signing info'));
+    await tester.pumpAndSettle();
+    expect((calls.last.arguments as Map)['includeSigningInfo'], isTrue);
+    expect(find.textContaining('Team ID: EXAMPLE123'), findsOneWidget);
+  });
+
+  testWidgets('shows unavailable optional metadata without hiding the app', (
+    tester,
+  ) async {
+    response = [
+      {'appName': 'Unknown metadata', 'appPath': '/Applications/Unknown.app'},
+    ];
+    await tester.pumpWidget(const MaterialApp(home: MacosPluginExample()));
+    await tester.pumpAndSettle();
+    for (final label in ['Architectures', 'Size', 'Signing info']) {
+      await tester.tap(find.text(label));
+      await tester.pumpAndSettle();
+    }
+    expect(find.text('Unknown metadata'), findsOneWidget);
+    expect(find.textContaining('Architectures: Unavailable'), findsOneWidget);
+    expect(find.textContaining('Bundle size: Unavailable'), findsOneWidget);
+    expect(find.textContaining('Team ID: Unavailable'), findsOneWidget);
   });
 
   testWidgets('shows scan failures and retries to an empty result', (

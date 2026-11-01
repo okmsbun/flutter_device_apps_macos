@@ -34,6 +34,9 @@ void main() {
         'includeSystem': false,
         'onlyLaunchable': true,
         'includeIcons': false,
+        'includeArchitectures': false,
+        'includeSize': false,
+        'includeSigningInfo': false,
         'bundleIdentifierPrefix': null,
         'bundleIdentifierContains': null,
       });
@@ -46,6 +49,9 @@ void main() {
           includeSystem: true,
           onlyLaunchable: false,
           includeIcons: true,
+          includeArchitectures: true,
+          includeSize: true,
+          includeSigningInfo: true,
           bundleIdentifierPrefix: 'com.Example.',
           bundleIdentifierContains: ' Tool ',
         );
@@ -53,6 +59,9 @@ void main() {
           'includeSystem': true,
           'onlyLaunchable': false,
           'includeIcons': true,
+          'includeArchitectures': true,
+          'includeSize': true,
+          'includeSigningInfo': true,
           'bundleIdentifierPrefix': 'com.Example.',
           'bundleIdentifierContains': ' Tool ',
         });
@@ -79,8 +88,13 @@ void main() {
           'appPath': '/Applications/Editor.app',
           'executablePath': '/Applications/Editor.app/Contents/MacOS/Editor',
           'isSystem': false,
+          'isAgent': true,
+          'isBackgroundOnly': false,
           'category': 'public.app-category.developer-tools',
           'minimumSystemVersion': '12.0',
+          'supportedArchitectures': ['arm64', 'x86_64'],
+          'bundleSizeBytes': 12345678901,
+          'teamIdentifier': 'EXAMPLE123',
           'iconBytes': bytes,
         },
       ];
@@ -98,8 +112,13 @@ void main() {
         '/Applications/Editor.app/Contents/MacOS/Editor',
       );
       expect(app.isSystem, isFalse);
+      expect(app.isAgent, isTrue);
+      expect(app.isBackgroundOnly, isFalse);
       expect(app.category, 'public.app-category.developer-tools');
       expect(app.minimumSystemVersion, '12.0');
+      expect(app.supportedArchitectures, ['arm64', 'x86_64']);
+      expect(app.bundleSizeBytes, 12345678901);
+      expect(app.teamIdentifier, 'EXAMPLE123');
       expect(app.iconBytes, bytes);
     });
 
@@ -137,6 +156,30 @@ void main() {
   });
 
   group('MacosAppInfo', () {
+    test(
+      'keeps unavailable metadata null and protects the architecture list',
+      () {
+        final architectures = <String>['arm64'];
+        final app = MacosAppInfo.fromMap({
+          'isAgent': false,
+          'isBackgroundOnly': true,
+          'supportedArchitectures': architectures,
+          'bundleSizeBytes': null,
+          'teamIdentifier': null,
+        });
+        architectures.add('x86_64');
+        expect(app.isAgent, isFalse);
+        expect(app.isBackgroundOnly, isTrue);
+        expect(app.supportedArchitectures, ['arm64']);
+        expect(app.bundleSizeBytes, isNull);
+        expect(app.teamIdentifier, isNull);
+        expect(
+          () => app.supportedArchitectures!.add('x86_64'),
+          throwsUnsupportedError,
+        );
+      },
+    );
+
     test('keeps absent metadata null', () {
       final app = MacosAppInfo.fromMap({});
       expect(app.bundleIdentifier, isNull);
@@ -146,8 +189,13 @@ void main() {
       expect(app.appPath, isNull);
       expect(app.executablePath, isNull);
       expect(app.isSystem, isNull);
+      expect(app.isAgent, isNull);
+      expect(app.isBackgroundOnly, isNull);
       expect(app.category, isNull);
       expect(app.minimumSystemVersion, isNull);
+      expect(app.supportedArchitectures, isNull);
+      expect(app.bundleSizeBytes, isNull);
+      expect(app.teamIdentifier, isNull);
       expect(app.iconBytes, isNull);
     });
 

@@ -1,5 +1,6 @@
 import AppKit
 import FlutterMacOS
+import MachO
 import XCTest
 
 @testable import flutter_device_apps_macos
@@ -76,6 +77,11 @@ class RunnerTests: XCTestCase {
     XCTAssertEqual(info["buildNumber"] as? String, "42.1.0")
     XCTAssertEqual(info["appPath"] as? String, url.resolvingSymlinksInPath().path)
     XCTAssertEqual(info["isSystem"] as? Bool, false)
+    XCTAssertEqual(info["isAgent"] as? Bool, false)
+    XCTAssertEqual(info["isBackgroundOnly"] as? Bool, false)
+    XCTAssertTrue(info["supportedArchitectures"] is NSNull)
+    XCTAssertTrue(info["bundleSizeBytes"] is NSNull)
+    XCTAssertTrue(info["teamIdentifier"] is NSNull)
     XCTAssertEqual(info["category"] as? String, "public.app-category.developer-tools")
     XCTAssertEqual(info["minimumSystemVersion"] as? String, "12.0")
     XCTAssertTrue(info["iconBytes"] is NSNull)
@@ -107,6 +113,152 @@ class RunnerTests: XCTestCase {
       blocked.appendingPathComponent("Contents/MacOS/Executable").path)
     XCTAssertEqual(try scan().map { $0["appName"] as? String }, ["Normal"])
     XCTAssertEqual(try scan(AppListOptions(onlyLaunchable: false)).count, 5)
+  }
+
+  func testAgentAndBackgroundFlagsDescribeBundleDeclarations() throws {
+    try app("Agent.app", extra: ["LSUIElement": true])
+    try app("Background.app", extra: ["LSBackgroundOnly": "YES"])
+    let apps = try scan(AppListOptions(onlyLaunchable: false))
+    XCTAssertEqual(apps[0]["isAgent"] as? Bool, true)
+    XCTAssertEqual(apps[0]["isBackgroundOnly"] as? Bool, false)
+    XCTAssertEqual(apps[1]["isAgent"] as? Bool, false)
+    XCTAssertEqual(apps[1]["isBackgroundOnly"] as? Bool, true)
+  }
+
+  func testOptionalReadersRunIndependentlyAndAfterFiltering() throws {
+    try app("Editor.app", bundleIdentifier: "com.example.editor")
+    try app("Browser.app", bundleIdentifier: "org.example.browser")
+    var reads: [String] = []
+    let scanner = MacosAppScanner(
+      searchDirectories: directories,
+      architectureProvider: { url in reads.append("arch:\(url.lastPathComponent)"); return ["arm64"] },
+      sizeProvider: { url in reads.append("size:\(url.lastPathComponent)"); return 4096 },
+      teamIdentifierProvider: { url in reads.append("team:\(url.lastPathComponent)"); return "EXAMPLE123" }
+    )
+    _ = try scanner.listApps(options: AppListOptions())
+    XCTAssertTrue(reads.isEmpty)
+    let sizes = try scanner.listApps(options: AppListOptions(
+      includeSize: true, bundleIdentifierPrefix: "com."
+    ))
+    XCTAssertEqual(reads, ["size:Editor.app"])
+    XCTAssertEqual(sizes.first?["bundleSizeBytes"] as? Int64, 4096)
+    XCTAssertTrue(sizes.first?["supportedArchitectures"] is NSNull)
+    XCTAssertTrue(sizes.first?["teamIdentifier"] is NSNull)
+    reads.removeAll()
+    let all = try scanner.listApps(options: AppListOptions(
+      includeArchitectures: true, includeSize: true, includeSigningInfo: true,
+      bundleIdentifierPrefix: "com."
+    ))
+    XCTAssertEqual(reads.sorted(), ["arch:Editor.app", "size:Editor.app", "team:Editor.app"])
+    XCTAssertEqual(all.first?["supportedArchitectures"] as? [String], ["arm64"])
+    XCTAssertEqual(all.first?["teamIdentifier"] as? String, "EXAMPLE123")
+  }
+
+  func testUnavailableOptionalMetadataKeepsTheApp() throws {
+    try app("Editor.app")
+    let scanner = MacosAppScanner(
+      searchDirectories: directories, architectureProvider: { _ in nil },
+      sizeProvider: { _ in nil }, teamIdentifierProvider: { _ in nil }
+    )
+    let apps = try scanner.listApps(options: AppListOptions(
+      includeArchitectures: true, includeSize: true, includeSigningInfo: true
+    ))
+    XCTAssertEqual(apps.count, 1)
+    for key in ["supportedArchitectures", "bundleSizeBytes", "teamIdentifier"] {
+      XCTAssertTrue(apps[0][key] is NSNull)
+    }
+  }
+
+  private func machoHeader(cpu: cpu_type_t, subtype: cpu_subtype_t) -> Data {
+    var header = mach_header_64(
+      magic: MH_MAGIC_64, cputype: cpu, cpusubtype: subtype, filetype: UInt32(MH_EXECUTE),
+      ncmds: 0, sizeofcmds: 0, flags: 0, reserved: 0
+    )
+    return withUnsafeBytes(of: &header) { Data($0) }
+  }
+
+  func testReadsArchitectureFromAThinExecutable() throws {
+    let url = try app("ArmApp.app")
+    try machoHeader(cpu: CPU_TYPE_ARM64, subtype: CPU_SUBTYPE_ARM64_ALL)
+      .write(to: url.appendingPathComponent("Contents/MacOS/Executable"))
+    let apps = try scan(AppListOptions(includeArchitectures: true))
+    XCTAssertEqual(apps.first?["supportedArchitectures"] as? [String], ["arm64"])
+  }
+
+  func testReadsBothArchitectureFamiliesFromAUniversalExecutable() throws {
+    let url = try app("UniversalApp.app")
+    let arm = machoHeader(cpu: CPU_TYPE_ARM64, subtype: CPU_SUBTYPE_ARM64_ALL)
+    let intel = machoHeader(cpu: CPU_TYPE_X86_64, subtype: CPU_SUBTYPE_X86_64_ALL)
+    var binary = Data()
+    func word(_ value: UInt32) {
+      var bigEndian = value.bigEndian
+      withUnsafeBytes(of: &bigEndian) { binary.append(contentsOf: $0) }
+    }
+    word(FAT_MAGIC)
+    word(2)
+    for (cpu, subtype, offset) in [
+      (CPU_TYPE_ARM64, CPU_SUBTYPE_ARM64_ALL, UInt32(4096)),
+      (CPU_TYPE_X86_64, CPU_SUBTYPE_X86_64_ALL, UInt32(8192)),
+    ] {
+      word(UInt32(bitPattern: cpu))
+      word(UInt32(bitPattern: subtype))
+      word(offset)
+      word(UInt32(arm.count))
+      word(12)
+    }
+    binary.append(Data(repeating: 0, count: 4096 - binary.count))
+    binary.append(arm)
+    binary.append(Data(repeating: 0, count: 8192 - binary.count))
+    binary.append(intel)
+    try binary.write(to: url.appendingPathComponent("Contents/MacOS/Executable"))
+    let apps = try scan(AppListOptions(includeArchitectures: true))
+    XCTAssertEqual(apps.first?["supportedArchitectures"] as? [String], ["arm64", "x86_64"])
+  }
+
+  func testScriptArchitecturesAndUnsignedTeamIDsRemainUnknown() throws {
+    try app("Script.app")
+    let apps = try scan(AppListOptions(includeArchitectures: true, includeSigningInfo: true))
+    XCTAssertEqual(apps.count, 1)
+    XCTAssertTrue(apps[0]["supportedArchitectures"] is NSNull)
+    XCTAssertTrue(apps[0]["teamIdentifier"] is NSNull)
+  }
+
+  func testLogicalSizeIncludesHiddenAndNestedFilesWithoutFollowingSymlinks() throws {
+    let url = try app("Sized.app")
+    let expectedBase = try Data(contentsOf: url.appendingPathComponent("Contents/Info.plist")).count
+      + Data(contentsOf: url.appendingPathComponent("Contents/MacOS/Executable")).count
+    let nested = url.appendingPathComponent("Contents/Frameworks/Embedded.framework")
+    try fm.createDirectory(at: nested, withIntermediateDirectories: true)
+    let regular = nested.appendingPathComponent("resource")
+    try Data(repeating: 1, count: 37).write(to: regular)
+    try fm.linkItem(at: regular, to: nested.appendingPathComponent("hardlink"))
+    try Data(repeating: 2, count: 11).write(to: url.appendingPathComponent(".hidden"))
+    let external = root.appendingPathComponent("External")
+    try fm.createDirectory(at: external, withIntermediateDirectories: true)
+    try Data(repeating: 3, count: 1000).write(to: external.appendingPathComponent("large"))
+    try fm.createSymbolicLink(at: url.appendingPathComponent("LinkedDirectory"),
+                             withDestinationURL: external)
+    try fm.createSymbolicLink(at: url.appendingPathComponent("LinkedFile"),
+                             withDestinationURL: regular)
+    try fm.createSymbolicLink(at: url.appendingPathComponent("BrokenLink"),
+                             withDestinationURL: root.appendingPathComponent("Missing"))
+    let apps = try scan(AppListOptions(includeSize: true))
+    XCTAssertEqual(apps.first?["bundleSizeBytes"] as? Int64, Int64(expectedBase + 37 + 37 + 11))
+  }
+
+  func testUnreadableBundleContentsDoNotReturnAPartialSize() throws {
+    let url = try app("Restricted.app")
+    let restricted = url.appendingPathComponent("Contents/Private")
+    try fm.createDirectory(at: restricted, withIntermediateDirectories: true)
+    try Data([1, 2, 3]).write(to: restricted.appendingPathComponent("data"))
+    try fm.setAttributes([.posixPermissions: 0], ofItemAtPath: restricted.path)
+    defer { try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: restricted.path) }
+    if fm.isReadableFile(atPath: restricted.path) {
+      throw XCTSkip("The test host can bypass filesystem permissions")
+    }
+    let apps = try scan(AppListOptions(includeSize: true))
+    XCTAssertEqual(apps.count, 1)
+    XCTAssertTrue(apps[0]["bundleSizeBytes"] is NSNull)
   }
 
   func testRejectsExecutablePathsThatEscapeTheBundle() throws {
@@ -222,37 +374,52 @@ class RunnerTests: XCTestCase {
     let defaults = try AppListOptions(arguments: nil)
     XCTAssertFalse(defaults.includeSystem)
     XCTAssertTrue(defaults.onlyLaunchable)
+    XCTAssertFalse(defaults.includeArchitectures)
+    XCTAssertFalse(defaults.includeSize)
+    XCTAssertFalse(defaults.includeSigningInfo)
     let invalidArguments: [Any] = [
       [], ["includeSystem": "true"], ["includeIcons": 1], ["bundleIdentifierContains": true],
+      ["includeArchitectures": "true"], ["includeSize": 1], ["includeSigningInfo": []],
     ]
     for invalid in invalidArguments {
       XCTAssertThrowsError(try AppListOptions(arguments: invalid))
     }
     let options = try AppListOptions(arguments: [
       "includeSystem": true, "onlyLaunchable": false, "includeIcons": true,
+      "includeArchitectures": true, "includeSize": true, "includeSigningInfo": true,
       "bundleIdentifierPrefix": "", "bundleIdentifierContains": NSNull(),
     ])
     XCTAssertTrue(options.includeSystem)
     XCTAssertFalse(options.onlyLaunchable)
     XCTAssertTrue(options.includeIcons)
+    XCTAssertTrue(options.includeArchitectures)
+    XCTAssertTrue(options.includeSize)
+    XCTAssertTrue(options.includeSigningInfo)
     XCTAssertEqual(options.bundleIdentifierPrefix, "")
     XCTAssertNil(options.bundleIdentifierContains)
   }
 
   func testMethodChannelEncodesIconsAndRepliesOnMainThread() throws {
     try app("Editor.app")
-    let scanner = MacosAppScanner(searchDirectories: directories, iconProvider: { _ in
-      Data([137, 80, 78, 71])
-    })
+    let scanner = MacosAppScanner(
+      searchDirectories: directories, iconProvider: { _ in Data([137, 80, 78, 71]) },
+      architectureProvider: { _ in ["arm64", "x86_64"] },
+      sizeProvider: { _ in 12345678901 }, teamIdentifierProvider: { _ in "EXAMPLE123" }
+    )
     let plugin = FlutterDeviceAppsMacosPlugin(scanner: scanner)
     let completed = expectation(description: "Native listApps response")
-    plugin.handle(FlutterMethodCall(methodName: "listApps", arguments: ["includeIcons": true])) {
+    plugin.handle(FlutterMethodCall(methodName: "listApps", arguments: [
+      "includeIcons": true, "includeArchitectures": true, "includeSize": true, "includeSigningInfo": true,
+    ])) {
       result in
       XCTAssertTrue(Thread.isMainThread)
       let apps = result as? [[String: Any]]
       XCTAssertEqual(apps?.count, 1)
       XCTAssertEqual((apps?.first?["iconBytes"] as? FlutterStandardTypedData)?.data,
                      Data([137, 80, 78, 71]))
+      XCTAssertEqual(apps?.first?["supportedArchitectures"] as? [String], ["arm64", "x86_64"])
+      XCTAssertEqual(apps?.first?["bundleSizeBytes"] as? Int64, 12345678901)
+      XCTAssertEqual(apps?.first?["teamIdentifier"] as? String, "EXAMPLE123")
       completed.fulfill()
     }
     waitForExpectations(timeout: 10)

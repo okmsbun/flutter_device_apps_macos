@@ -19,6 +19,9 @@ class _MacosPluginExampleState extends State<MacosPluginExample> {
   bool _includeSystem = false;
   bool _onlyLaunchable = true;
   bool _includeIcons = false;
+  bool _includeArchitectures = false;
+  bool _includeSize = false;
+  bool _includeSigningInfo = false;
   late Future<List<MacosAppInfo>> _apps;
 
   @override
@@ -31,6 +34,9 @@ class _MacosPluginExampleState extends State<MacosPluginExample> {
     includeSystem: _includeSystem,
     onlyLaunchable: _onlyLaunchable,
     includeIcons: _includeIcons,
+    includeArchitectures: _includeArchitectures,
+    includeSize: _includeSize,
+    includeSigningInfo: _includeSigningInfo,
     bundleIdentifierPrefix: _prefix.text,
     bundleIdentifierContains: _contains.text,
   );
@@ -124,6 +130,30 @@ class _MacosPluginExampleState extends State<MacosPluginExample> {
                         _reload();
                       },
                     ),
+                    FilterChip(
+                      label: const Text('Architectures'),
+                      selected: _includeArchitectures,
+                      onSelected: (value) {
+                        _includeArchitectures = value;
+                        _reload();
+                      },
+                    ),
+                    FilterChip(
+                      label: const Text('Size'),
+                      selected: _includeSize,
+                      onSelected: (value) {
+                        _includeSize = value;
+                        _reload();
+                      },
+                    ),
+                    FilterChip(
+                      label: const Text('Signing info'),
+                      selected: _includeSigningInfo,
+                      onSelected: (value) {
+                        _includeSigningInfo = value;
+                        _reload();
+                      },
+                    ),
                   ],
                 ),
               ],
@@ -194,6 +224,16 @@ class _MacosPluginExampleState extends State<MacosPluginExample> {
                                   'Version: ${app.versionName}',
                                 if (app.buildNumber != null)
                                   'Build: ${app.buildNumber}',
+                                if (app.isAgent != null)
+                                  'Agent: ${app.isAgent}',
+                                if (app.isBackgroundOnly != null)
+                                  'Background only: ${app.isBackgroundOnly}',
+                                if (_includeArchitectures)
+                                  'Architectures: ${app.supportedArchitectures?.join(', ') ?? 'Unavailable'}',
+                                if (_includeSize)
+                                  'Bundle size: ${app.bundleSizeBytes == null ? 'Unavailable' : '${app.bundleSizeBytes} bytes'}',
+                                if (_includeSigningInfo)
+                                  'Team ID: ${app.teamIdentifier ?? 'Unavailable'}',
                                 if (app.appPath != null) app.appPath!,
                               ].join('\n'),
                             ),

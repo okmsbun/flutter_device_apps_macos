@@ -9,6 +9,7 @@ Use bundle identifiers, app paths, and macOS metadata throughout the API.
 
 - [x] Independent macOS plugin with Swift Package Manager and CocoaPods support.
 - [x] `MacosAppInfo` with `fromMap`, optional fields, and optional PNG bytes.
+- [x] Agent/background declarations and optional architecture, logical size, and Team ID metadata.
 - [x] `listApps`: standard directories, system/launchable filters, bundle ID
   prefix and substring filters, path deduplication, optional icons, and `[]` for no matches.
 - [x] Example with filters, icons, refresh, empty results, and errors.

@@ -1,3 +1,8 @@
+## Unreleased
+
+- Added agent/background flags and optional architectures, bundle size, and Team ID.
+- Updated the example with optional metadata controls.
+
 ## 0.1.0
 
 - Added `listApps`, `MacosAppInfo`, bundle ID filters, and optional PNG icons.

@@ -1,11 +1,16 @@
 import AppKit
 import CoreFoundation
 import Foundation
+import MachO
+import Security
 
 struct AppListOptions {
   var includeSystem = false
   var onlyLaunchable = true
   var includeIcons = false
+  var includeArchitectures = false
+  var includeSize = false
+  var includeSigningInfo = false
   var bundleIdentifierPrefix: String?
   var bundleIdentifierContains: String?
 
@@ -13,12 +18,18 @@ struct AppListOptions {
     includeSystem: Bool = false,
     onlyLaunchable: Bool = true,
     includeIcons: Bool = false,
+    includeArchitectures: Bool = false,
+    includeSize: Bool = false,
+    includeSigningInfo: Bool = false,
     bundleIdentifierPrefix: String? = nil,
     bundleIdentifierContains: String? = nil
   ) {
     self.includeSystem = includeSystem
     self.onlyLaunchable = onlyLaunchable
     self.includeIcons = includeIcons
+    self.includeArchitectures = includeArchitectures
+    self.includeSize = includeSize
+    self.includeSigningInfo = includeSigningInfo
     self.bundleIdentifierPrefix = bundleIdentifierPrefix
     self.bundleIdentifierContains = bundleIdentifierContains
   }
@@ -51,6 +62,9 @@ struct AppListOptions {
       includeSystem: boolean("includeSystem", default: false),
       onlyLaunchable: boolean("onlyLaunchable", default: true),
       includeIcons: boolean("includeIcons", default: false),
+      includeArchitectures: boolean("includeArchitectures", default: false),
+      includeSize: boolean("includeSize", default: false),
+      includeSigningInfo: boolean("includeSigningInfo", default: false),
       bundleIdentifierPrefix: string("bundleIdentifierPrefix"),
       bundleIdentifierContains: string("bundleIdentifierContains")
     )
@@ -87,15 +101,24 @@ final class MacosAppScanner {
   private let searchDirectories: [AppSearchDirectory]
   private let fileManager: FileManager
   private let iconProvider: (URL) -> Data?
+  private let architectureProvider: (URL) -> [String]?
+  private let sizeProvider: (URL) -> Int64?
+  private let teamIdentifierProvider: (URL) -> String?
 
   init(
     searchDirectories: [AppSearchDirectory] = MacosAppScanner.standardDirectories,
     fileManager: FileManager = .default,
-    iconProvider: @escaping (URL) -> Data? = MacosAppScanner.pngIcon
+    iconProvider: @escaping (URL) -> Data? = MacosAppScanner.pngIcon,
+    architectureProvider: @escaping (URL) -> [String]? = MacosAppScanner.executableArchitectures,
+    sizeProvider: ((URL) -> Int64?)? = nil,
+    teamIdentifierProvider: @escaping (URL) -> String? = MacosAppScanner.teamIdentifier
   ) {
     self.searchDirectories = searchDirectories
     self.fileManager = fileManager
     self.iconProvider = iconProvider
+    self.architectureProvider = architectureProvider
+    self.sizeProvider = sizeProvider ?? { MacosAppScanner.logicalBundleSize($0, fileManager: fileManager) }
+    self.teamIdentifierProvider = teamIdentifierProvider
   }
 
   static var standardDirectories: [AppSearchDirectory] {
@@ -166,7 +189,7 @@ final class MacosAppScanner {
         }
         visitedPaths.insert(url.path)
         apps.append(appMap(url, info: info, executable: executable,
-                           isSystem: isSystem, includeIcon: options.includeIcons))
+                           isSystem: isSystem, options: options))
       }
     }
     if readableDirectories == 0 && failedDirectories > 0 {
@@ -218,7 +241,7 @@ final class MacosAppScanner {
   }
 
   private func appMap(
-    _ url: URL, info: [String: Any], executable: URL?, isSystem: Bool, includeIcon: Bool
+    _ url: URL, info: [String: Any], executable: URL?, isSystem: Bool, options: AppListOptions
   ) -> [String: Any] {
     let localized = Bundle(url: url)?.localizedInfoDictionary ?? [:]
     let name = (localized["CFBundleDisplayName"] as? String)
@@ -234,10 +257,76 @@ final class MacosAppScanner {
       "appPath": url.path,
       "executablePath": executable?.path ?? NSNull(),
       "isSystem": isSystem,
+      "isAgent": plistBoolean(info["LSUIElement"]),
+      "isBackgroundOnly": plistBoolean(info["LSBackgroundOnly"]),
       "category": info["LSApplicationCategoryType"] as? String ?? NSNull(),
       "minimumSystemVersion": info["LSMinimumSystemVersion"] as? String ?? NSNull(),
-      "iconBytes": (includeIcon ? iconProvider(url) : nil) ?? NSNull(),
+      "supportedArchitectures": (options.includeArchitectures ? architectureProvider(url) : nil) ?? NSNull(),
+      "bundleSizeBytes": (options.includeSize ? sizeProvider(url) : nil) ?? NSNull(),
+      "teamIdentifier": (options.includeSigningInfo ? teamIdentifierProvider(url) : nil) ?? NSNull(),
+      "iconBytes": (options.includeIcons ? iconProvider(url) : nil) ?? NSNull(),
     ]
+  }
+
+  private static func executableArchitectures(_ url: URL) -> [String]? {
+    guard let values = Bundle(url: url)?.executableArchitectures, !values.isEmpty else { return nil }
+    let architectures = values.map { value -> String in
+      switch value.int32Value {
+      case CPU_TYPE_ARM64: return "arm64"
+      case CPU_TYPE_X86_64: return "x86_64"
+      case CPU_TYPE_I386: return "i386"
+      case CPU_TYPE_ARM: return "arm"
+      case CPU_TYPE_POWERPC: return "ppc"
+      case CPU_TYPE_POWERPC64: return "ppc64"
+      default: return "cpu-\(value.int32Value)"
+      }
+    }
+    return Array(Set(architectures)).sorted()
+  }
+
+  private static func logicalBundleSize(_ url: URL, fileManager: FileManager) -> Int64? {
+    var failed = false
+    guard let enumerator = fileManager.enumerator(
+      at: url,
+      includingPropertiesForKeys: [.isSymbolicLinkKey],
+      options: [],
+      errorHandler: { _, _ in
+        failed = true
+        return false
+      }
+    ) else { return nil }
+    var total: Int64 = 0
+    do {
+      for case let entry as URL in enumerator {
+        let link = try entry.resourceValues(forKeys: [.isSymbolicLinkKey])
+        guard let isLink = link.isSymbolicLink else { return nil }
+        if isLink { continue }
+        let values = try entry.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
+        guard let isRegularFile = values.isRegularFile else { return nil }
+        if !isRegularFile { continue }
+        guard let size = values.fileSize, size >= 0 else { return nil }
+        let sum = total.addingReportingOverflow(Int64(size))
+        guard !sum.overflow else { return nil }
+        total = sum.partialValue
+      }
+    } catch {
+      return nil
+    }
+    return failed ? nil : total
+  }
+
+  private static func teamIdentifier(_ url: URL) -> String? {
+    var code: SecStaticCode?
+    guard SecStaticCodeCreateWithPath(url as CFURL, SecCSFlags(), &code) == errSecSuccess,
+          let code = code else { return nil }
+    var information: CFDictionary?
+    guard SecCodeCopySigningInformation(
+      code, SecCSFlags(rawValue: kSecCSSigningInformation), &information
+    ) == errSecSuccess,
+    let fields = information as? [String: Any],
+    let team = fields[kSecCodeInfoTeamIdentifier as String] as? String,
+    !team.isEmpty else { return nil }
+    return team
   }
 
   private static func pngIcon(_ url: URL) -> Data? {

@@ -17,13 +17,20 @@ abstract final class FlutterDeviceAppsMacos {
   ///
   /// Scans `/Applications`, `~/Applications`, `/System/Applications`, and
   /// `/System/Library/CoreServices`, including their non-package subdirectories.
-  /// Does not scan inside app bundles or enumerate other folders and volumes.
+  /// Discovery skips app bundle contents and other folders and volumes.
   /// App Sandbox and filesystem permissions can limit the results.
   ///
   /// [includeSystem] includes apps in system locations (default: false).
   /// [onlyLaunchable] requires an executable and excludes background-only and
   /// agent apps (default: true). This is a preflight, not a launch guarantee.
   /// [includeIcons] loads 64×64 PNG icons after filtering (default: false).
+  /// [includeArchitectures] reads main executable CPU families (default: false).
+  /// [includeSize] totals regular file lengths inside each matched bundle
+  /// (default: false). Large bundles can make this expensive.
+  /// [includeSigningInfo] reads the embedded signature's Team ID without
+  /// verifying the signature (default: false).
+  /// Optional metadata is null when not requested or unavailable; a failure
+  /// reading it does not discard the app or return a partial bundle size.
   /// [bundleIdentifierPrefix] and [bundleIdentifierContains] are case-sensitive,
   /// combined with AND, and disabled independently by null or an empty string.
   /// Apps without a bundle identifier only match when both filters are disabled.
@@ -37,6 +44,9 @@ abstract final class FlutterDeviceAppsMacos {
     bool includeSystem = false,
     bool onlyLaunchable = true,
     bool includeIcons = false,
+    bool includeArchitectures = false,
+    bool includeSize = false,
+    bool includeSigningInfo = false,
     String? bundleIdentifierPrefix,
     String? bundleIdentifierContains,
   }) async {
@@ -45,6 +55,9 @@ abstract final class FlutterDeviceAppsMacos {
           'includeSystem': includeSystem,
           'onlyLaunchable': onlyLaunchable,
           'includeIcons': includeIcons,
+          'includeArchitectures': includeArchitectures,
+          'includeSize': includeSize,
+          'includeSigningInfo': includeSigningInfo,
           'bundleIdentifierPrefix': bundleIdentifierPrefix,
           'bundleIdentifierContains': bundleIdentifierContains,
         });
