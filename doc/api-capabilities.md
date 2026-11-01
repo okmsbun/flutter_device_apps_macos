@@ -1,7 +1,7 @@
 # macOS API capabilities
 
 `flutter_device_apps_macos` discovers and inspects macOS app bundles.
-Currently implemented: `FlutterDeviceAppsMacos.listApps` and `MacosAppInfo`.
+Currently implemented: `FlutterDeviceAppsMacos.listApps`, `getApp`, and `MacosAppInfo`.
 See [TODO](../TODO.md) for planned APIs.
 
 ## Discovery scope
@@ -25,6 +25,29 @@ The resolved `appPath` identifies an app copy. Multiple copies can share the sam
 a bundle identifier.
 
 Results are sorted by localized app name and then path. No matches returns `[]`.
+
+## Single app lookup
+
+`getApp` returns one `MacosAppInfo`, or null when the selected app is missing,
+unreadable, or not a valid app bundle. Supply exactly one named target:
+
+- `bundleIdentifier`: resolves the default copy using
+  `NSWorkspace.urlForApplication(withBundleIdentifier:)` and verifies an exact,
+  case-sensitive match against the bundle's metadata.
+- `appPath`: accepts an absolute filesystem path and resolves symlinks. It can
+  inspect accessible bundles outside the standard discovery directories.
+
+Bundle ID lookup does not enumerate discovery roots or choose another copy when
+the preferred one is inaccessible. Use an explicit path to select a specific copy.
+Relative paths, `~/` expansion, and `file://` URLs are not accepted.
+
+The method includes system apps, agent/background apps, hidden bundles, and apps
+without executables. List filters are not applied. `includeIcon` defaults to false;
+`includeArchitectures`, `includeSize`, and `includeSigningInfo` behave as in `listApps`.
+
+Missing, blank, conflicting, or invalid targets throw `ArgumentError` in Dart.
+Malformed direct method-channel arguments produce `ARG`. Unexpected native
+lookup failures produce `ERR_GET`; they are not treated as a missing app.
 
 ## Filters and icons
 
@@ -89,6 +112,7 @@ User-granted access and persistent security-scoped bookmarks are planned.
 - [File enumeration](https://developer.apple.com/documentation/foundation/filemanager/enumerator(at:includingpropertiesforkeys:options:errorhandler:))
 - [Bundle metadata](https://developer.apple.com/documentation/foundation/bundle/infodictionary)
 - [File icons](https://developer.apple.com/documentation/appkit/nsworkspace/icon(forfile:))
+- [Default app lookup](https://developer.apple.com/documentation/appkit/nsworkspace/urlforapplication(withbundleidentifier:))
 - [Executable architectures](https://developer.apple.com/documentation/foundation/bundle/executablearchitectures)
 - [File sizes](https://developer.apple.com/documentation/foundation/urlresourcevalues/filesize)
 - [Code-signing metadata](https://developer.apple.com/documentation/security/signing-information-dictionary-keys)

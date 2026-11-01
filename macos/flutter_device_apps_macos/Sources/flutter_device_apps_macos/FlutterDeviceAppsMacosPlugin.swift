@@ -25,30 +25,45 @@ public class FlutterDeviceAppsMacosPlugin: NSObject, FlutterPlugin {
   }
 
   public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
-    guard call.method == "listApps" else {
-      result(FlutterMethodNotImplemented)
-      return
-    }
-    let options: AppListOptions
     do {
-      options = try AppListOptions(arguments: call.arguments)
+      switch call.method {
+      case "listApps":
+        let options = try AppListOptions(arguments: call.arguments)
+        perform(errorCode: "ERR_LIST", result: result) {
+          try self.scanner.listApps(options: options).map(Self.encodeApp)
+        }
+      case "getApp":
+        let request = try AppLookupRequest(arguments: call.arguments)
+        perform(errorCode: "ERR_GET", result: result) {
+          try self.scanner.getApp(target: request.target, options: request.options).map(Self.encodeApp)
+        }
+      default:
+        result(FlutterMethodNotImplemented)
+      }
     } catch {
       result(FlutterError(code: "ARG", message: error.localizedDescription, details: nil))
-      return
     }
+  }
+
+  private static func encodeApp(_ app: [String: Any]) -> [String: Any] {
+    var encoded = app
+    if let bytes = app["iconBytes"] as? Data {
+      encoded["iconBytes"] = FlutterStandardTypedData(bytes: bytes)
+    }
+    return encoded
+  }
+
+  private func perform(
+    errorCode: String, result: @escaping FlutterResult,
+    operation: @escaping () throws -> Any?
+  ) {
     worker.async {
       do {
-        let apps = try self.scanner.listApps(options: options).map { app -> [String: Any] in
-          var encoded = app
-          if let bytes = app["iconBytes"] as? Data {
-            encoded["iconBytes"] = FlutterStandardTypedData(bytes: bytes)
-          }
-          return encoded
-        }
-        DispatchQueue.main.async { result(apps) }
+        let response = try operation()
+        DispatchQueue.main.async { result(response) }
       } catch {
         DispatchQueue.main.async {
-          result(FlutterError(code: "ERR_LIST", message: error.localizedDescription, details: nil))
+          result(FlutterError(code: errorCode, message: error.localizedDescription, details: nil))
         }
       }
     }

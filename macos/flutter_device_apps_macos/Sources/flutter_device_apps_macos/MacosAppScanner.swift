@@ -4,6 +4,37 @@ import Foundation
 import MachO
 import Security
 
+private struct AppMethodArguments {
+  let values: [String: Any]
+
+  init(_ arguments: Any?, method: String) throws {
+    if arguments == nil {
+      values = [:]
+    } else if let map = arguments as? [String: Any] {
+      values = map
+    } else {
+      throw AppScanError.invalidArgument("\(method) arguments must be a map")
+    }
+  }
+
+  func boolean(_ key: String, default fallback: Bool = false) throws -> Bool {
+    guard let value = values[key], !(value is NSNull) else { return fallback }
+    guard let number = value as? NSNumber,
+          CFGetTypeID(number) == CFBooleanGetTypeID() else {
+      throw AppScanError.invalidArgument("\(key) must be a boolean")
+    }
+    return number.boolValue
+  }
+
+  func string(_ key: String) throws -> String? {
+    guard let value = values[key], !(value is NSNull) else { return nil }
+    guard let text = value as? String else {
+      throw AppScanError.invalidArgument("\(key) must be a string")
+    }
+    return text
+  }
+}
+
 struct AppListOptions {
   var includeSystem = false
   var onlyLaunchable = true
@@ -35,38 +66,16 @@ struct AppListOptions {
   }
 
   init(arguments: Any?) throws {
-    let map: [String: Any]
-    if arguments == nil {
-      map = [:]
-    } else if let value = arguments as? [String: Any] {
-      map = value
-    } else {
-      throw AppScanError.invalidArgument("listApps arguments must be a map")
-    }
-    func boolean(_ key: String, default fallback: Bool) throws -> Bool {
-      guard let value = map[key], !(value is NSNull) else { return fallback }
-      guard let number = value as? NSNumber,
-            CFGetTypeID(number) == CFBooleanGetTypeID() else {
-        throw AppScanError.invalidArgument("\(key) must be a boolean")
-      }
-      return number.boolValue
-    }
-    func string(_ key: String) throws -> String? {
-      guard let value = map[key], !(value is NSNull) else { return nil }
-      guard let text = value as? String else {
-        throw AppScanError.invalidArgument("\(key) must be a string")
-      }
-      return text
-    }
+    let values = try AppMethodArguments(arguments, method: "listApps")
     try self.init(
-      includeSystem: boolean("includeSystem", default: false),
-      onlyLaunchable: boolean("onlyLaunchable", default: true),
-      includeIcons: boolean("includeIcons", default: false),
-      includeArchitectures: boolean("includeArchitectures", default: false),
-      includeSize: boolean("includeSize", default: false),
-      includeSigningInfo: boolean("includeSigningInfo", default: false),
-      bundleIdentifierPrefix: string("bundleIdentifierPrefix"),
-      bundleIdentifierContains: string("bundleIdentifierContains")
+      includeSystem: values.boolean("includeSystem"),
+      onlyLaunchable: values.boolean("onlyLaunchable", default: true),
+      includeIcons: values.boolean("includeIcons"),
+      includeArchitectures: values.boolean("includeArchitectures"),
+      includeSize: values.boolean("includeSize"),
+      includeSigningInfo: values.boolean("includeSigningInfo"),
+      bundleIdentifierPrefix: values.string("bundleIdentifierPrefix"),
+      bundleIdentifierContains: values.string("bundleIdentifierContains")
     )
   }
 
@@ -76,6 +85,49 @@ struct AppListOptions {
     if let contains = bundleIdentifierContains, !contains.isEmpty,
        !(bundleIdentifier?.contains(contains) ?? false) { return false }
     return true
+  }
+}
+
+enum AppLookupTarget {
+  case bundleIdentifier(String)
+  case appPath(String)
+
+  init(bundleIdentifier: String?, appPath: String?) throws {
+    guard (bundleIdentifier == nil) != (appPath == nil) else {
+      throw AppScanError.invalidArgument("Provide exactly one of bundleIdentifier or appPath")
+    }
+    let value = bundleIdentifier ?? appPath!
+    guard !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+          !value.contains("\0") else {
+      throw AppScanError.invalidArgument("The lookup target must be non-empty and contain no NUL")
+    }
+    if let path = appPath {
+      guard path.hasPrefix("/") else {
+        throw AppScanError.invalidArgument("appPath must be an absolute filesystem path")
+      }
+      self = .appPath(path)
+    } else {
+      self = .bundleIdentifier(value)
+    }
+  }
+}
+
+struct AppLookupRequest {
+  let target: AppLookupTarget
+  let options: AppListOptions
+
+  init(arguments: Any?) throws {
+    let values = try AppMethodArguments(arguments, method: "getApp")
+    target = try AppLookupTarget(
+      bundleIdentifier: values.string("bundleIdentifier"), appPath: values.string("appPath")
+    )
+    options = try AppListOptions(
+      includeSystem: true, onlyLaunchable: false,
+      includeIcons: values.boolean("includeIcon"),
+      includeArchitectures: values.boolean("includeArchitectures"),
+      includeSize: values.boolean("includeSize"),
+      includeSigningInfo: values.boolean("includeSigningInfo")
+    )
   }
 }
 
@@ -104,6 +156,7 @@ final class MacosAppScanner {
   private let architectureProvider: (URL) -> [String]?
   private let sizeProvider: (URL) -> Int64?
   private let teamIdentifierProvider: (URL) -> String?
+  private let applicationResolver: (String) throws -> URL?
 
   init(
     searchDirectories: [AppSearchDirectory] = MacosAppScanner.standardDirectories,
@@ -111,7 +164,10 @@ final class MacosAppScanner {
     iconProvider: @escaping (URL) -> Data? = MacosAppScanner.pngIcon,
     architectureProvider: @escaping (URL) -> [String]? = MacosAppScanner.executableArchitectures,
     sizeProvider: ((URL) -> Int64?)? = nil,
-    teamIdentifierProvider: @escaping (URL) -> String? = MacosAppScanner.teamIdentifier
+    teamIdentifierProvider: @escaping (URL) -> String? = MacosAppScanner.teamIdentifier,
+    applicationResolver: @escaping (String) throws -> URL? = {
+      NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0)
+    }
   ) {
     self.searchDirectories = searchDirectories
     self.fileManager = fileManager
@@ -119,6 +175,7 @@ final class MacosAppScanner {
     self.architectureProvider = architectureProvider
     self.sizeProvider = sizeProvider ?? { MacosAppScanner.logicalBundleSize($0, fileManager: fileManager) }
     self.teamIdentifierProvider = teamIdentifierProvider
+    self.applicationResolver = applicationResolver
   }
 
   static var standardDirectories: [AppSearchDirectory] {
@@ -202,6 +259,28 @@ final class MacosAppScanner {
       if order != .orderedSame { return order == .orderedAscending }
       return ($0["appPath"] as? String ?? "") < ($1["appPath"] as? String ?? "")
     }
+  }
+
+  func getApp(target: AppLookupTarget, options: AppListOptions) throws -> [String: Any]? {
+    let candidate: URL
+    switch target {
+    case .appPath(let path):
+      candidate = URL(fileURLWithPath: path)
+    case .bundleIdentifier(let identifier):
+      guard let resolved = try applicationResolver(identifier) else { return nil }
+      candidate = resolved
+    }
+    guard candidate.isFileURL else { return nil }
+    let url = candidate.resolvingSymlinksInPath().standardizedFileURL
+    guard url.pathExtension.lowercased() == "app",
+          (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true,
+          let info = readInfo(url) else { return nil }
+    if case .bundleIdentifier(let identifier) = target,
+       info["CFBundleIdentifier"] as? String != identifier { return nil }
+    return appMap(
+      url, info: info, executable: executableURL(url, info: info),
+      isSystem: isSystemLocation(url), options: options
+    )
   }
 
   private func isSystemLocation(_ url: URL) -> Bool {

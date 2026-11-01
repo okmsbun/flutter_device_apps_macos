@@ -7,7 +7,7 @@ import 'macos_app_info.dart';
 
 export 'macos_app_info.dart' show MacosAppInfo;
 
-/// Lists installed macOS app bundles from standard application directories.
+/// Discovers and inspects installed macOS app bundles.
 abstract final class FlutterDeviceAppsMacos {
   static const MethodChannel _mch = MethodChannel(
     'flutter_device_apps_macos/methods',
@@ -67,5 +67,62 @@ abstract final class FlutterDeviceAppsMacos {
               MacosAppInfo.fromMap(Map<String, Object?>.from(entry as Map)),
         )
         .toList();
+  }
+
+  /// Gets one accessible macOS app by bundle ID or an absolute app bundle path.
+  ///
+  /// Supply exactly one of [bundleIdentifier] and [appPath]. Bundle ID lookup
+  /// uses macOS's preferred copy and verifies its exact bundle identifier.
+  /// Path lookup resolves symlinks and can inspect apps outside the standard
+  /// discovery directories, subject to App Sandbox and filesystem permissions.
+  ///
+  /// Includes system apps, agents, background-only apps, and apps without an
+  /// executable. No list filters are applied and discovery roots are not scanned.
+  /// [includeIcon], [includeArchitectures], [includeSize], and [includeSigningInfo]
+  /// enable the same optional metadata as [listApps]; all default to false.
+  ///
+  /// Returns null if the selected app is missing, unreadable, or not a valid app
+  /// bundle. If the preferred copy is inaccessible, no other copy is substituted.
+  /// Invalid targets throw [ArgumentError]. Unexpected native lookup failures
+  /// throw a [PlatformException] with `ERR_GET`.
+  static Future<MacosAppInfo?> getApp({
+    String? bundleIdentifier,
+    String? appPath,
+    bool includeIcon = false,
+    bool includeArchitectures = false,
+    bool includeSize = false,
+    bool includeSigningInfo = false,
+  }) async {
+    if ((bundleIdentifier == null) == (appPath == null)) {
+      throw ArgumentError(
+        'Provide exactly one of bundleIdentifier or appPath.',
+      );
+    }
+    final target = bundleIdentifier ?? appPath!;
+    if (target.trim().isEmpty || target.contains('\u0000')) {
+      throw ArgumentError.value(
+        target,
+        bundleIdentifier == null ? 'appPath' : 'bundleIdentifier',
+      );
+    }
+    if (appPath != null && !appPath.startsWith('/')) {
+      throw ArgumentError.value(
+        appPath,
+        'appPath',
+        'Use an absolute filesystem path.',
+      );
+    }
+    final Map<dynamic, dynamic>? raw = await _mch
+        .invokeMapMethod<dynamic, dynamic>('getApp', {
+          'bundleIdentifier': bundleIdentifier,
+          'appPath': appPath,
+          'includeIcon': includeIcon,
+          'includeArchitectures': includeArchitectures,
+          'includeSize': includeSize,
+          'includeSigningInfo': includeSigningInfo,
+        });
+    return raw == null
+        ? null
+        : MacosAppInfo.fromMap(Map<String, Object?>.from(raw));
   }
 }

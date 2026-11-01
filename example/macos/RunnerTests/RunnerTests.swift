@@ -435,6 +435,170 @@ class RunnerTests: XCTestCase {
     }
   }
 
+  func testBundleLookupUsesThePreferredCopyWithoutEnumeratingDirectories() throws {
+    try app("First.app", bundleIdentifier: "com.example.copy")
+    let preferred = try app("Second.app", bundleIdentifier: "com.example.copy")
+    let fm = DirectoryReadDenyingFileManager(denied: [userApps, systemApps])
+    var requests: [String] = []
+    let scanner = MacosAppScanner(
+      searchDirectories: directories, fileManager: fm,
+      applicationResolver: { identifier in requests.append(identifier); return preferred }
+    )
+    let info = try scanner.getApp(target: .bundleIdentifier("com.example.copy"), options: AppListOptions())
+    XCTAssertEqual(info?["appPath"] as? String, preferred.resolvingSymlinksInPath().path)
+    XCTAssertEqual(info?["appName"] as? String, "Second")
+    XCTAssertEqual(requests, ["com.example.copy"])
+    XCTAssertEqual(fm.directoryReadCount, 0)
+  }
+
+  func testPathLookupSelectsAnExactCopyOutsideDiscoveryRootsAndResolvesSymlinks() throws {
+    try app("Inside.app", bundleIdentifier: "com.example.copy")
+    let outside = try app("Outside.app", in: root.appendingPathComponent("Other"),
+                          bundleIdentifier: "com.example.copy")
+    let alias = root.appendingPathComponent("Alias")
+    try fm.createSymbolicLink(at: alias, withDestinationURL: outside)
+    let scanner = MacosAppScanner(searchDirectories: directories, applicationResolver: { _ in
+      XCTFail("Path lookup must not resolve a bundle identifier")
+      return nil
+    })
+    let info = try scanner.getApp(target: .appPath(alias.path), options: AppListOptions())
+    XCTAssertEqual(info?["appPath"] as? String, outside.resolvingSymlinksInPath().path)
+    XCTAssertEqual(info?["appName"] as? String, "Outside")
+  }
+
+  func testLookupIncludesSystemAgentsBackgroundAppsAndMissingExecutables() throws {
+    let url = try app(".Agent.app", in: systemApps, bundleIdentifier: nil,
+                      extra: ["LSUIElement": true, "LSBackgroundOnly": true], executable: false)
+    let scanner = MacosAppScanner(searchDirectories: directories)
+    let info = try scanner.getApp(target: .appPath(url.path), options: AppListOptions())
+    XCTAssertNotNil(info)
+    XCTAssertTrue(info?["bundleIdentifier"] is NSNull)
+    XCTAssertEqual(info?["isSystem"] as? Bool, true)
+    XCTAssertEqual(info?["isAgent"] as? Bool, true)
+    XCTAssertEqual(info?["isBackgroundOnly"] as? Bool, true)
+  }
+
+  func testLookupMissesAndStaleResolverResultsDoNotReturnOtherApps() throws {
+    let appURL = try app("Existing.app", bundleIdentifier: "com.example.existing")
+    let scanner = MacosAppScanner(searchDirectories: directories, applicationResolver: { _ in nil })
+    XCTAssertNil(try scanner.getApp(target: .bundleIdentifier("com.example.existing"), options: AppListOptions()))
+    XCTAssertNil(try scanner.getApp(target: .appPath(root.appendingPathComponent("Missing.app").path), options: AppListOptions()))
+    let wrong = MacosAppScanner(searchDirectories: directories, applicationResolver: { _ in appURL })
+    XCTAssertNil(try wrong.getApp(target: .bundleIdentifier("com.example.other"), options: AppListOptions()))
+    XCTAssertNil(try wrong.getApp(target: .bundleIdentifier("COM.EXAMPLE.EXISTING"), options: AppListOptions()))
+    let nonFile = MacosAppScanner(applicationResolver: { _ in URL(string: "https://example.com/App.app") })
+    XCTAssertNil(try nonFile.getApp(target: .bundleIdentifier("com.example.app"), options: AppListOptions()))
+  }
+
+  func testMalformedAndUnreadableAppPathsReturnNil() throws {
+    let scanner = MacosAppScanner(searchDirectories: directories)
+    let framework = try app("Framework.app", extra: ["CFBundlePackageType": "FMWK"])
+    XCTAssertNil(try scanner.getApp(target: .appPath(framework.path), options: AppListOptions()))
+    let regularFile = root.appendingPathComponent("File.app")
+    try Data([1]).write(to: regularFile)
+    XCTAssertNil(try scanner.getApp(target: .appPath(regularFile.path), options: AppListOptions()))
+    let malformed = try app("Malformed.app")
+    try Data("not a plist".utf8).write(to: malformed.appendingPathComponent("Contents/Info.plist"))
+    XCTAssertNil(try scanner.getApp(target: .appPath(malformed.path), options: AppListOptions()))
+    let noAccess = try app("Restricted.app")
+    let plist = noAccess.appendingPathComponent("Contents/Info.plist")
+    try fm.setAttributes([.posixPermissions: 0], ofItemAtPath: plist.path)
+    defer { try? fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: plist.path) }
+    if fm.isReadableFile(atPath: plist.path) {
+      throw XCTSkip("The test host can bypass filesystem permissions")
+    }
+    XCTAssertNil(try scanner.getApp(target: .appPath(noAccess.path), options: AppListOptions()))
+  }
+
+  func testLookupRequestValidatesTargetsAndMetadataOptions() throws {
+    let invalid: [Any?] = [
+      nil, [], [:], ["bundleIdentifier": 42], ["appPath": true],
+      ["bundleIdentifier": ""], ["bundleIdentifier": " \n "],
+      ["bundleIdentifier": "com.example.\0app"], ["appPath": "App.app"],
+      ["appPath": "~/Applications/App.app"], ["appPath": "file:///Applications/App.app"],
+      ["appPath": "/Applications/App.app\0"],
+      ["bundleIdentifier": "com.example.app", "appPath": "/Applications/App.app"],
+      ["appPath": "/Applications/App.app", "includeIcon": 1],
+      ["appPath": "/Applications/App.app", "includeArchitectures": "true"],
+      ["appPath": "/Applications/App.app", "includeSize": []],
+      ["appPath": "/Applications/App.app", "includeSigningInfo": "true"],
+    ]
+    let plugin = FlutterDeviceAppsMacosPlugin()
+    var replies = 0
+    for arguments in invalid {
+      XCTAssertThrowsError(try AppLookupRequest(arguments: arguments))
+      plugin.handle(FlutterMethodCall(methodName: "getApp", arguments: arguments)) {
+        XCTAssertEqual(($0 as? FlutterError)?.code, "ARG")
+        replies += 1
+      }
+    }
+    XCTAssertEqual(replies, invalid.count)
+    let request = try AppLookupRequest(arguments: [
+      "bundleIdentifier": NSNull(), "appPath": "/Applications/App.app", "includeIcon": true,
+      "includeArchitectures": true, "includeSize": true, "includeSigningInfo": true,
+    ])
+    XCTAssertTrue(request.options.includeIcons)
+    XCTAssertTrue(request.options.includeArchitectures)
+    XCTAssertTrue(request.options.includeSize)
+    XCTAssertTrue(request.options.includeSigningInfo)
+    XCTAssertTrue(request.options.includeSystem)
+    XCTAssertFalse(request.options.onlyLaunchable)
+  }
+
+  func testLookupMethodChannelReturnsMetadataOnMainThreadFromBackgroundLookup() throws {
+    let url = try app("Editor.app")
+    let scanner = MacosAppScanner(
+      searchDirectories: directories, iconProvider: { _ in Data([137, 80, 78, 71]) },
+      architectureProvider: { _ in ["arm64"] }, sizeProvider: { _ in 4096 },
+      teamIdentifierProvider: { _ in "EXAMPLE123" }, applicationResolver: { _ in
+        XCTAssertFalse(Thread.isMainThread)
+        return url
+      }
+    )
+    let plugin = FlutterDeviceAppsMacosPlugin(scanner: scanner)
+    let completed = expectation(description: "One app with optional metadata")
+    plugin.handle(FlutterMethodCall(methodName: "getApp", arguments: [
+      "bundleIdentifier": "com.example.app", "includeIcon": true,
+      "includeArchitectures": true, "includeSize": true, "includeSigningInfo": true,
+    ])) { result in
+      XCTAssertTrue(Thread.isMainThread)
+      let app = result as? [String: Any]
+      XCTAssertEqual(app?["appName"] as? String, "Editor")
+      XCTAssertEqual(app?["supportedArchitectures"] as? [String], ["arm64"])
+      XCTAssertEqual(app?["bundleSizeBytes"] as? Int64, 4096)
+      XCTAssertEqual(app?["teamIdentifier"] as? String, "EXAMPLE123")
+      XCTAssertEqual((app?["iconBytes"] as? FlutterStandardTypedData)?.data, Data([137, 80, 78, 71]))
+      completed.fulfill()
+    }
+    waitForExpectations(timeout: 10)
+  }
+
+  func testLookupMethodChannelDistinguishesMissingAppsFromResolutionErrors() {
+    let missing = FlutterDeviceAppsMacosPlugin(scanner: MacosAppScanner(applicationResolver: { _ in nil }))
+    let absent = expectation(description: "Missing app returns null")
+    missing.handle(FlutterMethodCall(methodName: "getApp", arguments: ["bundleIdentifier": "com.example.missing"])) {
+      XCTAssertTrue(Thread.isMainThread)
+      XCTAssertNil($0)
+      absent.fulfill()
+    }
+    let failed = FlutterDeviceAppsMacosPlugin(scanner: MacosAppScanner(applicationResolver: { _ in
+      throw NSError(domain: "lookup", code: 1)
+    }))
+    let error = expectation(description: "Unexpected resolution errors report ERR_GET")
+    failed.handle(FlutterMethodCall(methodName: "getApp", arguments: ["bundleIdentifier": "com.example.app"])) {
+      XCTAssertTrue(Thread.isMainThread)
+      XCTAssertEqual(($0 as? FlutterError)?.code, "ERR_GET")
+      error.fulfill()
+    }
+    waitForExpectations(timeout: 10)
+  }
+
+  func testDefaultBundleLookupWorksInTheHostSandbox() throws {
+    let info = try MacosAppScanner().getApp(target: .bundleIdentifier("com.apple.TextEdit"), options: AppListOptions())
+    XCTAssertEqual(info?["bundleIdentifier"] as? String, "com.apple.TextEdit")
+    XCTAssertNotNil(info?["appPath"] as? String)
+  }
+
   func testDefaultDirectoriesCanBeScannedInTheHostSandbox() throws {
     let apps = try MacosAppScanner().listApps(options: AppListOptions(includeSystem: true))
     XCTAssertFalse(apps.isEmpty)
@@ -445,6 +609,7 @@ class RunnerTests: XCTestCase {
 
 private final class DirectoryReadDenyingFileManager: FileManager, @unchecked Sendable {
   private let deniedPaths: Set<String>
+  private(set) var directoryReadCount = 0
 
   init(denied: [URL]) {
     deniedPaths = Set(denied.map { $0.resolvingSymlinksInPath().standardizedFileURL.path })
@@ -455,6 +620,7 @@ private final class DirectoryReadDenyingFileManager: FileManager, @unchecked Sen
     at url: URL, includingPropertiesForKeys keys: [URLResourceKey]?,
     options mask: FileManager.DirectoryEnumerationOptions = []
   ) throws -> [URL] {
+    directoryReadCount += 1
     if deniedPaths.contains(url.path) { throw CocoaError(.fileReadNoPermission) }
     return try super.contentsOfDirectory(at: url, includingPropertiesForKeys: keys, options: mask)
   }

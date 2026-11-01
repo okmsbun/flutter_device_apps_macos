@@ -7,17 +7,19 @@ void main() {
   const channel = MethodChannel('flutter_device_apps_macos/methods');
   final calls = <MethodCall>[];
   Object? response;
+  Object? getResponse;
   PlatformException? error;
 
   setUp(() {
     calls.clear();
     response = <Object>[];
+    getResponse = null;
     error = null;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
           calls.add(call);
           if (error != null) throw error!;
-          return response;
+          return call.method == 'getApp' ? getResponse : response;
         });
   });
 
@@ -149,6 +151,119 @@ void main() {
           FlutterDeviceAppsMacos.listApps(),
           throwsA(
             isA<PlatformException>().having((e) => e.code, 'code', 'ERR_LIST'),
+          ),
+        );
+      },
+    );
+  });
+
+  group('getApp', () {
+    test('forwards a bundle ID and defaults in one request', () async {
+      expect(
+        await FlutterDeviceAppsMacos.getApp(
+          bundleIdentifier: 'com.example.Editor',
+        ),
+        isNull,
+      );
+      expect(calls.single.method, 'getApp');
+      expect(calls.single.arguments, {
+        'bundleIdentifier': 'com.example.Editor',
+        'appPath': null,
+        'includeIcon': false,
+        'includeArchitectures': false,
+        'includeSize': false,
+        'includeSigningInfo': false,
+      });
+    });
+
+    test('forwards an exact app path and all metadata options', () async {
+      await FlutterDeviceAppsMacos.getApp(
+        appPath: '/Applications/Example Editor.app',
+        includeIcon: true,
+        includeArchitectures: true,
+        includeSize: true,
+        includeSigningInfo: true,
+      );
+      expect(calls.single.arguments, {
+        'bundleIdentifier': null,
+        'appPath': '/Applications/Example Editor.app',
+        'includeIcon': true,
+        'includeArchitectures': true,
+        'includeSize': true,
+        'includeSigningInfo': true,
+      });
+    });
+
+    test('decodes a single app using the same model as listApps', () async {
+      getResponse = {
+        'bundleIdentifier': 'com.example.editor',
+        'appName': 'Editor',
+        'appPath': '/Applications/Editor.app',
+        'isAgent': true,
+        'isSystem': true,
+        'supportedArchitectures': ['arm64'],
+        'bundleSizeBytes': 12345678901,
+        'teamIdentifier': 'EXAMPLE123',
+        'iconBytes': Uint8List.fromList([137, 80, 78, 71]),
+      };
+      final app = await FlutterDeviceAppsMacos.getApp(
+        bundleIdentifier: 'com.example.editor',
+        includeIcon: true,
+        includeArchitectures: true,
+        includeSize: true,
+        includeSigningInfo: true,
+      );
+      expect(app, isA<MacosAppInfo>());
+      expect(app!.appName, 'Editor');
+      expect(app.appPath, '/Applications/Editor.app');
+      expect(app.isAgent, isTrue);
+      expect(app.isSystem, isTrue);
+      expect(app.supportedArchitectures, ['arm64']);
+      expect(app.bundleSizeBytes, 12345678901);
+      expect(app.teamIdentifier, 'EXAMPLE123');
+      expect(app.iconBytes, [137, 80, 78, 71]);
+    });
+
+    test('returns null for missing or inaccessible apps', () async {
+      expect(
+        await FlutterDeviceAppsMacos.getApp(appPath: '/Missing.app'),
+        isNull,
+      );
+    });
+
+    test('rejects invalid targets before invoking native code', () async {
+      final targets = <({String? bundleIdentifier, String? appPath})>[
+        (bundleIdentifier: null, appPath: null),
+        (bundleIdentifier: 'com.example.app', appPath: '/Applications/App.app'),
+        (bundleIdentifier: '', appPath: null),
+        (bundleIdentifier: ' \n ', appPath: null),
+        (bundleIdentifier: 'com.example.\u0000app', appPath: null),
+        (bundleIdentifier: null, appPath: ''),
+        (bundleIdentifier: null, appPath: 'App.app'),
+        (bundleIdentifier: null, appPath: '~/Applications/App.app'),
+        (bundleIdentifier: null, appPath: 'file:///Applications/App.app'),
+        (bundleIdentifier: null, appPath: '/Applications/App.app\u0000'),
+      ];
+      for (final target in targets) {
+        await expectLater(
+          FlutterDeviceAppsMacos.getApp(
+            bundleIdentifier: target.bundleIdentifier,
+            appPath: target.appPath,
+          ),
+          throwsArgumentError,
+        );
+      }
+      expect(calls, isEmpty);
+    });
+
+    test(
+      'propagates unexpected lookup failures instead of returning null',
+      () async {
+        error = PlatformException(code: 'ERR_GET', message: 'Lookup failed');
+        await expectLater(
+          FlutterDeviceAppsMacos.getApp(bundleIdentifier: 'com.example.app'),
+          throwsA(
+            isA<PlatformException>().having((e) => e.code, 'code', 'ERR_GET'),
           ),
         );
       },

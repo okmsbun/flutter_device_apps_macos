@@ -7,11 +7,24 @@ void main() {
   const channel = MethodChannel('flutter_device_apps_macos/methods');
   final calls = <MethodCall>[];
   Object? response;
+  Object? getResponse;
+  PlatformException? lookupError;
   bool fail = false;
 
   setUp(() {
     calls.clear();
     fail = false;
+    lookupError = null;
+    getResponse = {
+      'appName': 'Lookup Editor',
+      'bundleIdentifier': 'com.example.lookup',
+      'appPath': '/Applications/Lookup Editor.app',
+      'isAgent': false,
+      'isBackgroundOnly': false,
+      'supportedArchitectures': ['arm64'],
+      'bundleSizeBytes': 2048,
+      'teamIdentifier': 'EXAMPLE123',
+    };
     response = [
       {
         'appName': 'Example Editor',
@@ -28,6 +41,10 @@ void main() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
           calls.add(call);
+          if (call.method == 'getApp') {
+            if (lookupError != null) throw lookupError!;
+            return getResponse;
+          }
           if (fail) {
             throw PlatformException(code: 'ERR_LIST', message: 'Access denied');
           }
@@ -108,6 +125,85 @@ void main() {
     expect(find.textContaining('Architectures: Unavailable'), findsOneWidget);
     expect(find.textContaining('Bundle size: Unavailable'), findsOneWidget);
     expect(find.textContaining('Team ID: Unavailable'), findsOneWidget);
+  });
+
+  testWidgets('looks up a bundle ID with optional metadata', (tester) async {
+    await tester.pumpWidget(const MaterialApp(home: MacosPluginExample()));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Get app'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('get-app-target')),
+      'com.example.lookup',
+    );
+    for (final label in ['Icon', 'Architectures', 'Size', 'Signing info']) {
+      await tester.tap(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.text(label),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+    await tester.tap(find.text('Lookup'));
+    await tester.pumpAndSettle();
+    final lookup = calls.where((call) => call.method == 'getApp').single;
+    expect(lookup.arguments, {
+      'bundleIdentifier': 'com.example.lookup',
+      'appPath': null,
+      'includeIcon': true,
+      'includeArchitectures': true,
+      'includeSize': true,
+      'includeSigningInfo': true,
+    });
+    expect(find.textContaining('Name: Lookup Editor'), findsOneWidget);
+    expect(find.textContaining('Team ID: EXAMPLE123'), findsOneWidget);
+  });
+
+  testWidgets('selects an exact listed app copy using its path', (
+    tester,
+  ) async {
+    await tester.pumpWidget(const MaterialApp(home: MacosPluginExample()));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Example Editor'));
+    await tester.pumpAndSettle();
+    final lookup = calls.where((call) => call.method == 'getApp').single;
+    expect((lookup.arguments as Map)['appPath'], '/Applications/Editor.app');
+    expect((lookup.arguments as Map)['bundleIdentifier'], isNull);
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const ValueKey('get-app-target')))
+          .controller!
+          .text,
+      '/Applications/Editor.app',
+    );
+    expect(find.textContaining('Name: Lookup Editor'), findsOneWidget);
+  });
+
+  testWidgets('shows lookup misses, native failures, and invalid paths', (
+    tester,
+  ) async {
+    getResponse = null;
+    await tester.pumpWidget(const MaterialApp(home: MacosPluginExample()));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Get app'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('App path'));
+    await tester.pumpAndSettle();
+    final target = find.byKey(const ValueKey('get-app-target'));
+    await tester.enterText(target, '/Applications/Missing.app');
+    await tester.tap(find.text('Lookup'));
+    await tester.pumpAndSettle();
+    expect(find.text('App not found or inaccessible.'), findsOneWidget);
+    lookupError = PlatformException(code: 'ERR_GET', message: 'Lookup failed');
+    await tester.tap(find.text('Lookup'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Could not get app:'), findsOneWidget);
+    await tester.enterText(target, 'relative.app');
+    await tester.tap(find.text('Lookup'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('absolute filesystem path'), findsOneWidget);
+    expect(calls.where((call) => call.method == 'getApp'), hasLength(2));
   });
 
   testWidgets('shows scan failures and retries to an empty result', (

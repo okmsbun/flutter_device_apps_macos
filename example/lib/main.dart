@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_device_apps_macos/flutter_device_apps_macos.dart';
 
+import 'get_app_dialog.dart';
+
 void main() {
   runApp(const MaterialApp(home: MacosPluginExample()));
 }
@@ -48,6 +50,13 @@ class _MacosPluginExampleState extends State<MacosPluginExample> {
     });
   }
 
+  Future<void> _openAppLookup({String? appPath}) async {
+    await showDialog<void>(
+      context: context,
+      builder: (_) => GetAppDialog(appPath: appPath),
+    );
+  }
+
   @override
   void dispose() {
     _prefix.dispose();
@@ -61,6 +70,11 @@ class _MacosPluginExampleState extends State<MacosPluginExample> {
       appBar: AppBar(
         title: const Text('flutter_device_apps_macos'),
         actions: [
+          IconButton(
+            onPressed: _openAppLookup,
+            tooltip: 'Get app',
+            icon: const Icon(Icons.manage_search),
+          ),
           IconButton(
             onPressed: _reload,
             tooltip: 'Refresh',
@@ -208,6 +222,7 @@ class _MacosPluginExampleState extends State<MacosPluginExample> {
                           final app = apps[index];
                           final icon = app.iconBytes;
                           return ListTile(
+                            onTap: () => _openAppLookup(appPath: app.appPath),
                             leading: icon == null
                                 ? const Icon(Icons.apps)
                                 : Image.memory(icon, width: 40, height: 40),

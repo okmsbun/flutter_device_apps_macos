@@ -1,5 +1,6 @@
 ## Unreleased
 
+- Added `getApp` with bundle ID/path lookup and an interactive example.
 - Added agent/background flags and optional architectures, bundle size, and Team ID.
 - Updated the example with optional metadata controls.
 

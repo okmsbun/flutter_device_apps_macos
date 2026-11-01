@@ -38,6 +38,23 @@ final List<MacosAppInfo> apps = await FlutterDeviceAppsMacos.listApps(
 Call `WidgetsFlutterBinding.ensureInitialized()` when querying before `runApp()`.
 Calls from `initState()` and UI callbacks need no extra initialization.
 
+## Get app
+
+```dart
+final app = await FlutterDeviceAppsMacos.getApp(
+  bundleIdentifier: 'com.apple.Safari',
+  includeIcon: true,
+);
+
+final copy = await FlutterDeviceAppsMacos.getApp(
+  appPath: '/Applications/Safari.app',
+);
+```
+
+Provide exactly one target. Bundle ID lookup selects macOS's preferred copy;
+an absolute path selects that copy directly. Returns `null` if inaccessible or
+unavailable. Optional architecture, size, and signing options match `listApps`.
+
 See [TODO](TODO.md) for planned APIs and [API capabilities](doc/api-capabilities.md)
 for discovery behavior and limitations.
 
