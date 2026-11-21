@@ -96,7 +96,9 @@ void main() {
           if (call.method == 'isAppInstalled') return true;
           if (call.method == 'isSystemApp') return null;
           if (call.method == 'isAppLaunchable') return false;
-          if (call.method == 'detectAppFrameworks') return ['flutter', 'qt'];
+          if (call.method == 'detectAppFrameworks') {
+            return ['flutter', 'qt', 'unity', 'javaRuntime'];
+          }
           if (call.method == 'getInstallSourceInfo') {
             return {
               'source': 'webDownload',
@@ -381,7 +383,10 @@ void main() {
     await tester.tap(find.text('Frameworks'));
     await tester.pumpAndSettle();
     expect(calls.last.method, 'detectAppFrameworks');
-    expect(find.text('Packaged frameworks: Flutter, Qt'), findsOneWidget);
+    expect(
+      find.text('Packaged frameworks: Flutter, Qt, Unity, Java Runtime'),
+      findsOneWidget,
+    );
 
     await tester.tap(find.text('Install source'));
     await tester.pumpAndSettle();

@@ -102,6 +102,8 @@ class _GetAppDialogState extends State<GetAppDialog> {
         MacosAppFramework.flutter => 'Flutter',
         MacosAppFramework.electron => 'Electron',
         MacosAppFramework.qt => 'Qt',
+        MacosAppFramework.unity => 'Unity',
+        MacosAppFramework.javaRuntime => 'Java Runtime',
       },
     );
     return 'Packaged frameworks: ${names.join(', ')}';

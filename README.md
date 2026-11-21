@@ -83,8 +83,8 @@ final frameworks = await FlutterDeviceAppsMacos.detectAppFrameworks(
 );
 ```
 
-Detects packaged indicators for **Flutter, Electron, and Qt**. Matches describe
-packaged components. An empty list means the scan found no supported indicator.
+Detects packaged indicators for **Flutter, Electron, Qt, Unity, and Java Runtime**.
+Matches describe packaged components. An empty list means the scan found no supported indicator.
 An unavailable app returns `null`.
 
 ### List running apps
