@@ -17,7 +17,7 @@ Requires macOS 12+, Flutter 3.44+, and Dart 3.12+.
 Swift Package Manager and CocoaPods are supported.
 
 [API reference](https://pub.dev/documentation/flutter_device_apps_macos/latest/flutter_device_apps_macos/)
-· [Guide: macOS API capabilities](doc/api-capabilities.md)
+· [Guide: List installed macOS apps in Flutter](doc/api-capabilities.md)
 
 ## Main package
 
