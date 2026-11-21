@@ -7,7 +7,7 @@ import 'macos_app_info.dart';
 
 export 'macos_app_info.dart' show MacosAppInfo;
 
-/// Discovers and inspects installed macOS app bundles.
+/// Discovers, inspects, and manages macOS app bundles.
 abstract final class FlutterDeviceAppsMacos {
   static const MethodChannel _mch = MethodChannel(
     'flutter_device_apps_macos/methods',
@@ -219,6 +219,51 @@ abstract final class FlutterDeviceAppsMacos {
     String? appPath,
   }) async =>
       await _checkApp('isAppLaunchable', bundleIdentifier, appPath) ?? false;
+
+  /// Opens the selected app and waits for macOS to report the launch result.
+  ///
+  /// Supply exactly one target using the lookup rules of [getApp]. Invalid
+  /// targets throw [ArgumentError]. A [PlatformException] reports
+  /// `APP_UNAVAILABLE` for a lookup miss or `ERR_OPEN` for a native failure.
+  static Future<void> openApp({
+    String? bundleIdentifier,
+    String? appPath,
+  }) async {
+    await _mch.invokeMethod<void>(
+      'openApp',
+      _lookupArguments(bundleIdentifier, appPath),
+    );
+  }
+
+  /// Requests that Finder show and select the app bundle.
+  ///
+  /// Supply exactly one target using the lookup rules of [getApp]. The future
+  /// completes after sending the request. Invalid targets throw [ArgumentError].
+  /// A [PlatformException] reports `APP_UNAVAILABLE` for a lookup miss or
+  /// `ERR_REVEAL` for a native failure.
+  static Future<void> revealAppInFinder({
+    String? bundleIdentifier,
+    String? appPath,
+  }) async {
+    await _mch.invokeMethod<void>(
+      'revealAppInFinder',
+      _lookupArguments(bundleIdentifier, appPath),
+    );
+  }
+
+  /// Moves only the app bundle at [appPath] to Trash.
+  ///
+  /// Pass the resolved absolute path from [MacosAppInfo.appPath]. Show that path
+  /// to the user and get confirmation before calling this method. Invalid
+  /// arguments throw [ArgumentError]. A [PlatformException] reports
+  /// `APP_UNAVAILABLE` for a lookup miss or `ERR_TRASH` for an unresolved path
+  /// or a native failure such as insufficient permissions.
+  static Future<void> moveAppToTrash({required String appPath}) async {
+    await _mch.invokeMethod<void>(
+      'moveAppToTrash',
+      _lookupArguments(null, appPath),
+    );
+  }
 
   static Future<bool?> _checkApp(
     String method,

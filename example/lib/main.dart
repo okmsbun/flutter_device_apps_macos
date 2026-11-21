@@ -45,6 +45,7 @@ class _MacosPluginExampleState extends State<MacosPluginExample> {
   );
 
   void _reload() {
+    if (!mounted) return;
     final apps = _loadApps();
     setState(() {
       _apps = apps;
@@ -54,7 +55,7 @@ class _MacosPluginExampleState extends State<MacosPluginExample> {
   Future<void> _openAppLookup({String? appPath}) async {
     await showDialog<void>(
       context: context,
-      builder: (_) => GetAppDialog(appPath: appPath),
+      builder: (_) => GetAppDialog(appPath: appPath, onAppTrashed: _reload),
     );
   }
 

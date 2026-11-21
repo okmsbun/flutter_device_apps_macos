@@ -318,7 +318,7 @@ final class MacosAppScanner {
     return canLaunch(executableURL(url, info: info), info: info)
   }
 
-  private func resolveApp(target: AppLookupTarget) throws -> (URL, [String: Any])? {
+  func resolveApp(target: AppLookupTarget) throws -> (URL, [String: Any])? {
     let candidate: URL
     switch target {
     case .appPath(let path):

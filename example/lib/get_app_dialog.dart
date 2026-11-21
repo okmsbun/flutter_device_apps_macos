@@ -5,13 +5,16 @@ import 'package:material_ui/material_ui.dart';
 
 typedef _AppCheck =
     Future<bool?> Function({String? bundleIdentifier, String? appPath});
+typedef _AppAction =
+    Future<void> Function({String? bundleIdentifier, String? appPath});
 
-/// Looks up one app by bundle identifier or app path.
+/// Looks up and manages one app by bundle identifier or app path.
 class GetAppDialog extends StatefulWidget {
-  const GetAppDialog({super.key, this.appPath});
+  const GetAppDialog({super.key, this.appPath, this.onAppTrashed});
 
   /// An optional app path to inspect immediately when the dialog opens.
   final String? appPath;
+  final VoidCallback? onAppTrashed;
 
   @override
   State<GetAppDialog> createState() => _GetAppDialogState();
@@ -26,7 +29,7 @@ class _GetAppDialogState extends State<GetAppDialog> {
   bool _includeSigningInfo = false;
   Future<MacosAppInfo?>? _lookup;
   Future<Uint8List?>? _iconLookup;
-  Future<String>? _checkLookup;
+  Future<String>? _message;
 
   @override
   void initState() {
@@ -86,17 +89,59 @@ class _GetAppDialogState extends State<GetAppDialog> {
           };
           return '$label: $value';
         });
-    lookup.ignore();
+    _showMessage(lookup);
+  }
+
+  void _runAction(_AppAction action, String message) {
+    _showMessage(
+      action(
+        bundleIdentifier: _byPath ? null : _target.text,
+        appPath: _byPath ? _target.text : null,
+      ).then((_) => message),
+    );
+  }
+
+  Future<void> _confirmTrash(String path) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Move app to Trash?'),
+        content: SelectableText(path),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Move to Trash'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    final onAppTrashed = widget.onAppTrashed;
+    _showMessage(
+      FlutterDeviceAppsMacos.moveAppToTrash(appPath: path).then((_) {
+        onAppTrashed?.call();
+        return 'App moved to Trash.';
+      }),
+    );
+  }
+
+  void _showMessage(Future<String> message) {
+    message.ignore();
     setState(() {
       _clearResults();
-      _checkLookup = lookup;
+      _message = message;
     });
   }
 
   void _clearResults() {
     _lookup = null;
     _iconLookup = null;
-    _checkLookup = null;
+    _message = null;
   }
 
   @override
@@ -167,6 +212,20 @@ class _GetAppDialogState extends State<GetAppDialog> {
                   ),
                   child: const Text('Launchable?'),
                 ),
+                TextButton(
+                  onPressed: () => _runAction(
+                    FlutterDeviceAppsMacos.openApp,
+                    'macOS reported launch success.',
+                  ),
+                  child: const Text('Open app'),
+                ),
+                TextButton(
+                  onPressed: () => _runAction(
+                    FlutterDeviceAppsMacos.revealAppInFinder,
+                    'Finder request sent.',
+                  ),
+                  child: const Text('Show in Finder'),
+                ),
               ],
             ),
             const SizedBox(height: 12),
@@ -208,15 +267,17 @@ class _GetAppDialogState extends State<GetAppDialog> {
               ],
             ),
             const SizedBox(height: 16),
-            if (_checkLookup != null)
+            if (_message != null)
               FutureBuilder<String>(
-                future: _checkLookup,
+                future: _message,
                 builder: (context, snapshot) {
                   if (snapshot.connectionState != ConnectionState.done) {
                     return const Center(child: CircularProgressIndicator());
                   }
                   if (snapshot.hasError) {
-                    return Text('Could not check app: ${snapshot.error}');
+                    return Text(
+                      'Could not complete request: ${snapshot.error}',
+                    );
                   }
                   return Text(snapshot.requireData);
                 },
@@ -252,6 +313,7 @@ class _GetAppDialogState extends State<GetAppDialog> {
                     return const Text('App not found or inaccessible.');
                   }
                   final icon = app.iconBytes;
+                  final path = app.appPath;
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -276,6 +338,11 @@ class _GetAppDialogState extends State<GetAppDialog> {
                             'Team ID: ${app.teamIdentifier ?? 'Unavailable'}',
                         ].join('\n'),
                       ),
+                      if (path != null)
+                        TextButton(
+                          onPressed: () => _confirmTrash(path),
+                          child: const Text('Move to Trash…'),
+                        ),
                     ],
                   );
                 },

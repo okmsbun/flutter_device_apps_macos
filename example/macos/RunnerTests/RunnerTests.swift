@@ -639,6 +639,90 @@ class RunnerTests: XCTestCase {
     XCTAssertEqual(restricted.directoryReadCount, 0)
   }
 
+  func testAppActionsUseResolvedPathsAndWaitForLaunchCompletion() throws {
+    let preferred = try app("Preferred.app", extra: ["LSBackgroundOnly": true], executable: false)
+    let copy = try app("Copy.app").resolvingSymlinksInPath().standardizedFileURL
+    let trashed = root.appendingPathComponent("Moved.app")
+    let restricted = DirectoryReadDenyingFileManager(denied: [userApps, systemApps])
+    let scanner = MacosAppScanner(
+      searchDirectories: directories, fileManager: restricted,
+      applicationResolver: { _ in preferred }
+    )
+    var launchFinished = false
+    let plugin = FlutterDeviceAppsMacosPlugin(
+      scanner: scanner,
+      openApplication: { url, finish in
+        XCTAssertEqual(url.path, preferred.resolvingSymlinksInPath().path)
+        DispatchQueue.main.async {
+          launchFinished = true
+          finish(nil)
+        }
+      },
+      revealApplication: { XCTAssertEqual($0.path, copy.path) },
+      trashApplication: { [fm] url in
+        XCTAssertEqual(url.path, copy.path)
+        try fm.moveItem(at: url, to: trashed)
+      }
+    )
+    for (method, arguments) in [
+      ("openApp", ["bundleIdentifier": "com.example.app"]),
+      ("revealAppInFinder", ["appPath": copy.path]),
+      ("moveAppToTrash", ["appPath": copy.path]),
+    ] {
+      let completed = expectation(description: method)
+      plugin.handle(FlutterMethodCall(methodName: method, arguments: arguments)) { result in
+        XCTAssertTrue(Thread.isMainThread)
+        XCTAssertNil(result)
+        if method == "openApp" { XCTAssertTrue(launchFinished) }
+        completed.fulfill()
+      }
+    }
+    waitForExpectations(timeout: 10)
+    XCTAssertEqual(restricted.directoryReadCount, 0)
+    XCTAssertTrue(fm.fileExists(atPath: preferred.path))
+    XCTAssertFalse(fm.fileExists(atPath: copy.path))
+    XCTAssertTrue(fm.fileExists(atPath: trashed.path))
+  }
+
+  func testAppActionErrorsPreserveNativeFailureAndRejectTrashAliases() throws {
+    let target = try app("Target.app").resolvingSymlinksInPath().standardizedFileURL
+    let alias = userApps.appendingPathComponent("Alias.app")
+    try fm.createSymbolicLink(at: alias, withDestinationURL: target)
+    let missing = userApps.appendingPathComponent("Missing.app").path
+    let denied = NSError(domain: NSCocoaErrorDomain, code: NSFileWriteNoPermissionError)
+    let plugin = FlutterDeviceAppsMacosPlugin(
+      scanner: MacosAppScanner(searchDirectories: directories),
+      openApplication: { _, finish in finish(denied) },
+      revealApplication: { _ in XCTFail("Missing apps should not be revealed") },
+      trashApplication: { url in
+        XCTAssertEqual(url.path, target.path)
+        throw denied
+      }
+    )
+    for (method, arguments, code, nativeCode) in [
+      ("openApp", ["appPath": target.path], "ERR_OPEN", denied.code),
+      ("revealAppInFinder", ["appPath": missing], "APP_UNAVAILABLE", nil),
+      ("moveAppToTrash", ["appPath": alias.path], "ERR_TRASH", nil),
+      ("moveAppToTrash", ["appPath": target.path], "ERR_TRASH", denied.code),
+      ("moveAppToTrash", ["bundleIdentifier": "com.example.app"], "ARG", nil),
+    ] {
+      let completed = expectation(description: method)
+      plugin.handle(FlutterMethodCall(methodName: method, arguments: arguments)) { result in
+        XCTAssertTrue(Thread.isMainThread)
+        let error = result as? FlutterError
+        XCTAssertEqual(error?.code, code)
+        if let nativeCode = nativeCode {
+          let details = error?.details as? [String: Any]
+          XCTAssertEqual(details?["domain"] as? String, denied.domain)
+          XCTAssertEqual(details?["code"] as? Int, nativeCode)
+        }
+        completed.fulfill()
+      }
+    }
+    waitForExpectations(timeout: 10)
+    XCTAssertTrue(fm.fileExists(atPath: target.path))
+  }
+
   func testIconLookupReturnsPNGWithoutEnumeratingDirectories() throws {
     let url = try app("Editor.app")
     let restricted = DirectoryReadDenyingFileManager(denied: [userApps, systemApps])

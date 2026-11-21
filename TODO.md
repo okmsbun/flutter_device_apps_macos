@@ -19,6 +19,9 @@ Use bundle identifiers, app paths, and macOS metadata throughout the API.
 - [x] `isAppInstalled`: check for an accessible app bundle and document negative lookup results.
 - [x] `isSystemApp`: apply the same location heuristic as `MacosAppInfo.isSystem`.
 - [x] `isAppLaunchable`: apply the same preflight as `listApps(onlyLaunchable: true)`.
+- [x] `openApp`: open the resolved app and report the asynchronous macOS result.
+- [x] `revealAppInFinder`: request Finder selection for the resolved app bundle.
+- [x] `moveAppToTrash`: move the resolved bundle path to Trash with confirmation in the example.
 - [x] Example with filters, icons, refresh, empty results, and errors.
 - [x] Dart, widget, and native fixture tests; sandbox discovery smoke check.
 - [x] GitHub Actions for quality checks, Dart/widget tests, and native macOS tests.
@@ -26,7 +29,6 @@ Use bundle identifiers, app paths, and macOS metadata throughout the API.
 
 ## Next APIs
 
-- [ ] `openApp`: use NSWorkspace and report asynchronous launch success/errors.
 - [ ] `detectAppFrameworks`: define framework indicators and a result enum;
       distinguish packaged components from the primary UI framework.
 - [ ] `appChanges`: watch accessible discovery locations, reconcile snapshots,
@@ -35,9 +37,6 @@ Use bundle identifiers, app paths, and macOS metadata throughout the API.
       do not report them as another app's actual TCC grants.
 - [ ] `getInstallSourceInfo`: define a macOS-specific provenance model;
       unknown installer/source information must remain unknown.
-- [ ] `moveAppToTrash`: define the contract and user
-      confirmation; moving a bundle does not remove support files or privileged helpers.
-- [ ] `revealAppInFinder`: reveal the selected app bundle using NSWorkspace.
 
 ## Later
 

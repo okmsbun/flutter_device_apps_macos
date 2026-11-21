@@ -463,6 +463,61 @@ void main() {
     );
   });
 
+  group('app actions', () {
+    test('sends one request for each action with its exact target', () async {
+      response = null;
+      const path = '/Applications/Editor Copy.app';
+
+      await FlutterDeviceAppsMacos.openApp(
+        bundleIdentifier: 'com.example.editor',
+      );
+      await FlutterDeviceAppsMacos.revealAppInFinder(appPath: path);
+      await FlutterDeviceAppsMacos.moveAppToTrash(appPath: path);
+
+      expect(calls.map((call) => call.method), [
+        'openApp',
+        'revealAppInFinder',
+        'moveAppToTrash',
+      ]);
+      expect(calls.first.arguments, {
+        'bundleIdentifier': 'com.example.editor',
+        'appPath': null,
+      });
+      for (final call in calls.skip(1)) {
+        expect(call.arguments, {'bundleIdentifier': null, 'appPath': path});
+      }
+    });
+
+    test('rejects invalid targets and preserves native failures', () async {
+      await expectLater(FlutterDeviceAppsMacos.openApp(), throwsArgumentError);
+      await expectLater(
+        FlutterDeviceAppsMacos.revealAppInFinder(
+          bundleIdentifier: 'com.example.editor',
+          appPath: '/Applications/Editor.app',
+        ),
+        throwsArgumentError,
+      );
+      await expectLater(
+        FlutterDeviceAppsMacos.moveAppToTrash(appPath: 'Editor.app'),
+        throwsArgumentError,
+      );
+      expect(calls, isEmpty);
+
+      const path = '/Applications/Editor.app';
+      for (final (invoke, code) in [
+        (FlutterDeviceAppsMacos.openApp, 'ERR_OPEN'),
+        (FlutterDeviceAppsMacos.revealAppInFinder, 'APP_UNAVAILABLE'),
+        (FlutterDeviceAppsMacos.moveAppToTrash, 'ERR_TRASH'),
+      ]) {
+        error = PlatformException(code: code);
+        await expectLater(
+          invoke(appPath: path),
+          throwsA(isA<PlatformException>().having((e) => e.code, 'code', code)),
+        );
+      }
+    });
+  });
+
   group('MacosAppInfo', () {
     test(
       'keeps unavailable metadata null and protects the architecture list',

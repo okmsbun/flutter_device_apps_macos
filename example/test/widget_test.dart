@@ -53,6 +53,13 @@ void main() {
           if (call.method == 'isAppInstalled') return true;
           if (call.method == 'isSystemApp') return null;
           if (call.method == 'isAppLaunchable') return false;
+          if ([
+            'openApp',
+            'revealAppInFinder',
+            'moveAppToTrash',
+          ].contains(call.method)) {
+            return null;
+          }
           if (fail) {
             throw PlatformException(code: 'ERR_LIST', message: 'Access denied');
           }
@@ -100,6 +107,56 @@ void main() {
       });
     }
   });
+
+  testWidgets(
+    'opens, reveals, and confirms the resolved path before trashing',
+    (tester) async {
+      const path = '/Applications/Lookup Editor.app';
+      await tester.pumpWidget(const MaterialApp(home: MacosPluginExample()));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Get app'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('get-app-target')),
+        'com.example.lookup',
+      );
+      for (final (button, message, method) in [
+        ('Open app', 'macOS reported launch success.', 'openApp'),
+        ('Show in Finder', 'Finder request sent.', 'revealAppInFinder'),
+      ]) {
+        await tester.tap(find.text(button));
+        await tester.pumpAndSettle();
+        expect(find.text(message), findsOneWidget);
+        expect(calls.last.method, method);
+        expect(calls.last.arguments, {
+          'bundleIdentifier': 'com.example.lookup',
+          'appPath': null,
+        });
+      }
+
+      await tester.tap(find.text('Lookup'));
+      await tester.pumpAndSettle();
+      final trashButton = find.text('Move to Trash…');
+      await tester.ensureVisible(trashButton);
+      await tester.tap(trashButton);
+      await tester.pumpAndSettle();
+      expect(find.text(path), findsOneWidget);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(calls.last.method, 'getApp');
+
+      await tester.tap(trashButton);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Move to Trash'));
+      await tester.pumpAndSettle();
+      final trashCall = calls.singleWhere(
+        (call) => call.method == 'moveAppToTrash',
+      );
+      expect(trashCall.arguments, {'bundleIdentifier': null, 'appPath': path});
+      expect(find.text('App moved to Trash.'), findsOneWidget);
+      expect(calls.last.method, 'listApps');
+    },
+  );
 
   testWidgets('loads an icon through the icon API', (tester) async {
     iconResponse = base64Decode(
