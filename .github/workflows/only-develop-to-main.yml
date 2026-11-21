@@ -22,3 +22,22 @@ jobs:
             echo "Only PRs from 'develop' to 'main' are allowed."
             exit 1
           fi
+
+  quality:
+    needs: only-develop-to-main
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: pub.dev dry-run
+        run: flutter pub publish --dry-run

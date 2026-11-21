@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name             = 'flutter_device_apps_macos'
-  s.version          = '0.1.0'
+  s.version          = '1.0.0'
   s.summary          = 'Independent macOS app discovery and management APIs for Flutter.'
   s.description      = s.summary
   s.homepage         = 'https://github.com/okmsbun/flutter_device_apps_macos'
