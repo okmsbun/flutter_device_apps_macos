@@ -3,10 +3,8 @@ import 'dart:typed_data';
 import 'package:flutter_device_apps_macos/flutter_device_apps_macos.dart';
 import 'package:material_ui/material_ui.dart';
 
-typedef _AppCheck =
-    Future<bool?> Function({String? bundleIdentifier, String? appPath});
-typedef _AppAction =
-    Future<void> Function({String? bundleIdentifier, String? appPath});
+typedef _AppLookup<T> =
+    Future<T> Function({String? bundleIdentifier, String? appPath});
 
 /// Looks up and manages one app by bundle identifier or app path.
 class GetAppDialog extends StatefulWidget {
@@ -76,29 +74,52 @@ class _GetAppDialogState extends State<GetAppDialog> {
     });
   }
 
-  void _checkApp(String label, _AppCheck check) {
-    final lookup =
-        check(
-          bundleIdentifier: _byPath ? null : _target.text,
-          appPath: _byPath ? _target.text : null,
-        ).then((result) {
-          final value = switch (result) {
-            true => 'Yes',
-            false => 'No',
-            null => 'Unavailable',
-          };
-          return '$label: $value';
-        });
-    _showMessage(lookup);
+  void _checkApp(String label, _AppLookup<bool?> check) {
+    _inspectApp(check, (result) {
+      final value = switch (result) {
+        true => 'Yes',
+        false => 'No',
+        null => 'Unavailable',
+      };
+      return '$label: $value';
+    });
   }
 
-  void _runAction(_AppAction action, String message) {
+  void _inspectApp<T>(_AppLookup<T> lookup, String Function(T) describe) {
     _showMessage(
-      action(
+      lookup(
         bundleIdentifier: _byPath ? null : _target.text,
         appPath: _byPath ? _target.text : null,
-      ).then((_) => message),
+      ).then(describe),
     );
+  }
+
+  String _describeFrameworks(List<MacosAppFramework>? frameworks) {
+    if (frameworks == null) return 'App not found or inaccessible.';
+    if (frameworks.isEmpty) return 'No supported framework indicators found.';
+    final names = frameworks.map(
+      (framework) => switch (framework) {
+        MacosAppFramework.flutter => 'Flutter',
+        MacosAppFramework.electron => 'Electron',
+        MacosAppFramework.qt => 'Qt',
+      },
+    );
+    return 'Packaged frameworks: ${names.join(', ')}';
+  }
+
+  String _describeInstallSource(MacosAppInstallSourceInfo? info) {
+    if (info == null) return 'App not found or inaccessible.';
+    final source = switch (info.source) {
+      MacosAppInstallSource.macAppStore => 'Mac App Store receipt found',
+      MacosAppInstallSource.webDownload => 'Web download',
+      MacosAppInstallSource.unknown => 'Unknown',
+    };
+    final agent =
+        info.quarantineAgentName ?? info.quarantineAgentBundleIdentifier;
+    return [
+      'Install source: $source',
+      if (agent != null) 'Quarantine agent: $agent',
+    ].join('\n');
   }
 
   Future<void> _confirmTrash(String path) async {
@@ -213,18 +234,32 @@ class _GetAppDialogState extends State<GetAppDialog> {
                   child: const Text('Launchable?'),
                 ),
                 TextButton(
-                  onPressed: () => _runAction(
+                  onPressed: () => _inspectApp(
                     FlutterDeviceAppsMacos.openApp,
-                    'macOS reported launch success.',
+                    (_) => 'macOS reported launch success.',
                   ),
                   child: const Text('Open app'),
                 ),
                 TextButton(
-                  onPressed: () => _runAction(
+                  onPressed: () => _inspectApp(
                     FlutterDeviceAppsMacos.revealAppInFinder,
-                    'Finder request sent.',
+                    (_) => 'Finder request sent.',
                   ),
                   child: const Text('Show in Finder'),
+                ),
+                TextButton(
+                  onPressed: () => _inspectApp(
+                    FlutterDeviceAppsMacos.detectAppFrameworks,
+                    _describeFrameworks,
+                  ),
+                  child: const Text('Frameworks'),
+                ),
+                TextButton(
+                  onPressed: () => _inspectApp(
+                    FlutterDeviceAppsMacos.getInstallSourceInfo,
+                    _describeInstallSource,
+                  ),
+                  child: const Text('Install source'),
                 ),
               ],
             ),

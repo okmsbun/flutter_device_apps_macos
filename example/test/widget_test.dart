@@ -53,6 +53,14 @@ void main() {
           if (call.method == 'isAppInstalled') return true;
           if (call.method == 'isSystemApp') return null;
           if (call.method == 'isAppLaunchable') return false;
+          if (call.method == 'detectAppFrameworks') return ['flutter', 'qt'];
+          if (call.method == 'getInstallSourceInfo') {
+            return {
+              'source': 'webDownload',
+              'hasAppStoreReceipt': false,
+              'quarantineAgentName': 'Safari',
+            };
+          }
           if ([
             'openApp',
             'revealAppInFinder',
@@ -145,6 +153,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(calls.last.method, 'getApp');
 
+      await tester.ensureVisible(trashButton);
       await tester.tap(trashButton);
       await tester.pumpAndSettle();
       await tester.tap(find.text('Move to Trash'));
@@ -157,6 +166,30 @@ void main() {
       expect(calls.last.method, 'listApps');
     },
   );
+
+  testWidgets('shows framework and install source indicators', (tester) async {
+    await tester.pumpWidget(const MaterialApp(home: MacosPluginExample()));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Get app'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('get-app-target')),
+      'com.example.editor',
+    );
+
+    await tester.tap(find.text('Frameworks'));
+    await tester.pumpAndSettle();
+    expect(calls.last.method, 'detectAppFrameworks');
+    expect(find.text('Packaged frameworks: Flutter, Qt'), findsOneWidget);
+
+    await tester.tap(find.text('Install source'));
+    await tester.pumpAndSettle();
+    expect(calls.last.method, 'getInstallSourceInfo');
+    expect(
+      find.text('Install source: Web download\nQuarantine agent: Safari'),
+      findsOneWidget,
+    );
+  });
 
   testWidgets('loads an icon through the icon API', (tester) async {
     iconResponse = base64Decode(

@@ -86,6 +86,14 @@ public class FlutterDeviceAppsMacosPlugin: NSObject, FlutterPlugin {
         try performLookup(call, errorCode: "ERR_QUERY", result: result) { target in
           try self.scanner.isAppLaunchable(target: target)
         }
+      case "detectAppFrameworks":
+        try performLookup(call, errorCode: "ERR_FRAMEWORK_SCAN", result: result) { target in
+          try self.scanner.detectAppFrameworks(target: target)
+        }
+      case "getInstallSourceInfo":
+        try performLookup(call, errorCode: "ERR_INSTALL_SOURCE", result: result) { target in
+          try self.scanner.getInstallSourceInfo(target: target)
+        }
       case "openApp":
         let target = try AppMethodArguments(call.arguments, method: call.method).lookupTarget()
         performAppAction(target, errorCode: "ERR_OPEN", result: result, action: openApplication)

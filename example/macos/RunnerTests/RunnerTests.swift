@@ -1,4 +1,5 @@
 import AppKit
+import CoreServices
 import FlutterMacOS
 import MachO
 import XCTest
@@ -637,6 +638,95 @@ class RunnerTests: XCTestCase {
     }
     waitForExpectations(timeout: 10)
     XCTAssertEqual(restricted.directoryReadCount, 0)
+  }
+
+  func testAppInspectionReadsOnlySupportedMarkersInTheResolvedBundle() throws {
+    let preferred = try app("Preferred.app")
+    let copy = try app("Copy.app")
+    let plain = try app("Plain.app")
+    let missing = userApps.appendingPathComponent("Missing.app")
+    let flutterRoot = preferred.appendingPathComponent("Contents/Frameworks/FlutterMacOS.framework")
+    for file in [
+      flutterRoot.appendingPathComponent("Versions/A/FlutterMacOS"),
+      preferred.appendingPathComponent("Contents/Frameworks/QtCore.framework/QtCore"),
+      preferred.appendingPathComponent("Contents/_MASReceipt/receipt"),
+      copy.appendingPathComponent("Contents/Frameworks/Electron Framework.framework/Electron Framework"),
+      plain.appendingPathComponent("Contents/PlugIns/Helper.app/Contents/Frameworks/QtCore.framework/QtCore"),
+    ] {
+      try fm.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+      try Data("fixture".utf8).write(to: file)
+    }
+    try fm.createSymbolicLink(
+      at: flutterRoot.appendingPathComponent("FlutterMacOS"),
+      withDestinationURL: flutterRoot.appendingPathComponent("Versions/A/FlutterMacOS")
+    )
+    try fm.createSymbolicLink(
+      at: copy.appendingPathComponent("Contents/Frameworks/FlutterMacOS.framework"),
+      withDestinationURL: flutterRoot
+    )
+
+    let restricted = DirectoryReadDenyingFileManager(denied: [userApps, systemApps])
+    let scanner = MacosAppScanner(
+      searchDirectories: directories, fileManager: restricted,
+      applicationResolver: { _ in preferred }
+    )
+    let plugin = FlutterDeviceAppsMacosPlugin(scanner: scanner)
+    let frameworkChecks: [([String: String], [String]?)] = [
+      (["bundleIdentifier": "com.example.app"], ["flutter", "qt"]),
+      (["appPath": copy.path], ["electron"]),
+      (["appPath": plain.path], []),
+      (["appPath": missing.path], nil),
+    ]
+    for (arguments, expected) in frameworkChecks {
+      let finished = expectation(description: "framework inspection")
+      plugin.handle(FlutterMethodCall(methodName: "detectAppFrameworks", arguments: arguments)) { result in
+        XCTAssertTrue(Thread.isMainThread)
+        if let expected = expected {
+          XCTAssertEqual(result as? [String], expected)
+        } else {
+          XCTAssertNil(result)
+        }
+        finished.fulfill()
+      }
+    }
+    let sourceChecks: [(URL, String?)] = [
+      (preferred, "macAppStore"), (copy, "unknown"), (missing, nil),
+    ]
+    for (app, expected) in sourceChecks {
+      let finished = expectation(description: "install source inspection")
+      plugin.handle(FlutterMethodCall(methodName: "getInstallSourceInfo", arguments: ["appPath": app.path])) { result in
+        XCTAssertTrue(Thread.isMainThread)
+        if let expected = expected {
+          let info = result as? [String: Any]
+          XCTAssertEqual(info?["source"] as? String, expected)
+          XCTAssertEqual(info?["hasAppStoreReceipt"] as? Bool, expected == "macAppStore")
+        } else {
+          XCTAssertNil(result)
+        }
+        finished.fulfill()
+      }
+    }
+    waitForExpectations(timeout: 10)
+    XCTAssertEqual(restricted.directoryReadCount, 0)
+  }
+
+  func testInstallSourceUsesQuarantineTypeAndPrefersAReceiptMarker() {
+    let web: [String: Any] = [
+      kLSQuarantineTypeKey as String: kLSQuarantineTypeWebDownload as String,
+      kLSQuarantineAgentNameKey as String: "Safari",
+      kLSQuarantineAgentBundleIdentifierKey as String: "com.apple.Safari",
+    ]
+    let download = MacosAppScanner.installSourceInfo(hasAppStoreReceipt: false, quarantine: web)
+    XCTAssertEqual(download["source"] as? String, "webDownload")
+    XCTAssertEqual(download["quarantineAgentName"] as? String, "Safari")
+    XCTAssertEqual(download["quarantineAgentBundleIdentifier"] as? String, "com.apple.Safari")
+    let store = MacosAppScanner.installSourceInfo(hasAppStoreReceipt: true, quarantine: web)
+    XCTAssertEqual(store["source"] as? String, "macAppStore")
+    let unspecified = MacosAppScanner.installSourceInfo(
+      hasAppStoreReceipt: false,
+      quarantine: [kLSQuarantineTypeKey as String: kLSQuarantineTypeOtherDownload as String]
+    )
+    XCTAssertEqual(unspecified["source"] as? String, "unknown")
   }
 
   func testAppActionsUseResolvedPathsAndWaitForLaunchCompletion() throws {

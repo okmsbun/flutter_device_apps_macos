@@ -463,6 +463,79 @@ void main() {
     );
   });
 
+  group('app inspection', () {
+    test(
+      'decodes known framework markers and preserves unavailable results',
+      () async {
+        const path = '/Applications/Editor Copy.app';
+        response = ['flutter', 'qt', 'futureFramework', 'flutter'];
+        expect(
+          await FlutterDeviceAppsMacos.detectAppFrameworks(appPath: path),
+          [MacosAppFramework.flutter, MacosAppFramework.qt],
+        );
+        expect(calls.single.method, 'detectAppFrameworks');
+        expect(calls.single.arguments, {
+          'bundleIdentifier': null,
+          'appPath': path,
+        });
+
+        response = <String>[];
+        expect(
+          await FlutterDeviceAppsMacos.detectAppFrameworks(appPath: path),
+          isEmpty,
+        );
+        response = null;
+        expect(
+          await FlutterDeviceAppsMacos.detectAppFrameworks(appPath: path),
+          isNull,
+        );
+      },
+    );
+
+    test(
+      'decodes install source evidence and keeps unknown separate from null',
+      () async {
+        const bundle = 'com.example.editor';
+        response = {
+          'source': 'webDownload',
+          'hasAppStoreReceipt': false,
+          'quarantineAgentName': 'Safari',
+          'quarantineAgentBundleIdentifier': 'com.apple.Safari',
+        };
+        final info = await FlutterDeviceAppsMacos.getInstallSourceInfo(
+          bundleIdentifier: bundle,
+        );
+        expect(calls.single.method, 'getInstallSourceInfo');
+        expect(calls.single.arguments, {
+          'bundleIdentifier': bundle,
+          'appPath': null,
+        });
+        expect(info?.source, MacosAppInstallSource.webDownload);
+        expect(info?.hasAppStoreReceipt, isFalse);
+        expect(info?.quarantineAgentName, 'Safari');
+        expect(info?.quarantineAgentBundleIdentifier, 'com.apple.Safari');
+
+        response = {'source': 'futureSource'};
+        final unknown = await FlutterDeviceAppsMacos.getInstallSourceInfo(
+          bundleIdentifier: bundle,
+        );
+        expect(unknown?.source, MacosAppInstallSource.unknown);
+        expect(unknown?.quarantineAgentName, isNull);
+        response = null;
+        expect(
+          await FlutterDeviceAppsMacos.getInstallSourceInfo(
+            bundleIdentifier: bundle,
+          ),
+          isNull,
+        );
+        await expectLater(
+          FlutterDeviceAppsMacos.getInstallSourceInfo(),
+          throwsArgumentError,
+        );
+      },
+    );
+  });
+
   group('app actions', () {
     test('sends one request for each action with its exact target', () async {
       response = null;

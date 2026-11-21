@@ -4,8 +4,23 @@ library;
 import 'package:flutter/services.dart';
 
 import 'macos_app_info.dart';
+import 'macos_app_install_source_info.dart';
 
 export 'macos_app_info.dart' show MacosAppInfo;
+export 'macos_app_install_source_info.dart'
+    show MacosAppInstallSource, MacosAppInstallSourceInfo;
+
+/// Framework components identified by known files in a macOS app bundle.
+enum MacosAppFramework {
+  /// The Flutter macOS engine.
+  flutter,
+
+  /// The Electron framework.
+  electron,
+
+  /// The Qt Core framework.
+  qt,
+}
 
 /// Discovers, inspects, and manages macOS app bundles.
 abstract final class FlutterDeviceAppsMacos {
@@ -219,6 +234,47 @@ abstract final class FlutterDeviceAppsMacos {
     String? appPath,
   }) async =>
       await _checkApp('isAppLaunchable', bundleIdentifier, appPath) ?? false;
+
+  /// Identifies supported framework components packaged in a macOS app.
+  ///
+  /// Supply exactly one target using the lookup rules of [getApp]. Matches are
+  /// limited to supported files present in the bundle. Multiple components can
+  /// match, without identifying the app's primary UI framework.
+  /// Returns an empty list when no indicators are found or null when the app
+  /// is unavailable. Invalid targets throw [ArgumentError]. Unexpected native
+  /// failures throw a [PlatformException] with `ERR_FRAMEWORK_SCAN`.
+  static Future<List<MacosAppFramework>?> detectAppFrameworks({
+    String? bundleIdentifier,
+    String? appPath,
+  }) async {
+    final names = await _mch.invokeListMethod<String>(
+      'detectAppFrameworks',
+      _lookupArguments(bundleIdentifier, appPath),
+    );
+    return names == null
+        ? null
+        : MacosAppFramework.values
+              .where((framework) => names.contains(framework.name))
+              .toList();
+  }
+
+  /// Reads the selected app's App Store receipt and quarantine indicators.
+  ///
+  /// Supply exactly one target using the lookup rules of [getApp]. Returns null
+  /// for an unavailable app and [MacosAppInstallSource.unknown] in the result
+  /// when the source cannot be inferred. Invalid targets throw [ArgumentError].
+  /// Unexpected native failures throw a [PlatformException] with
+  /// `ERR_INSTALL_SOURCE`.
+  static Future<MacosAppInstallSourceInfo?> getInstallSourceInfo({
+    String? bundleIdentifier,
+    String? appPath,
+  }) async {
+    final map = await _mch.invokeMapMethod<String, Object?>(
+      'getInstallSourceInfo',
+      _lookupArguments(bundleIdentifier, appPath),
+    );
+    return map == null ? null : MacosAppInstallSourceInfo.fromMap(map);
+  }
 
   /// Opens the selected app and waits for macOS to report the launch result.
   ///

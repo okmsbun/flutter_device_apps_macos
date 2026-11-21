@@ -22,6 +22,8 @@ Use bundle identifiers, app paths, and macOS metadata throughout the API.
 - [x] `openApp`: open the resolved app and report the asynchronous macOS result.
 - [x] `revealAppInFinder`: request Finder selection for the resolved app bundle.
 - [x] `moveAppToTrash`: move the resolved bundle path to Trash with confirmation in the example.
+- [x] `detectAppFrameworks`: report Flutter, Electron, and Qt bundle indicators.
+- [x] `getInstallSourceInfo`: report App Store receipt and web-download indicators with an unknown fallback.
 - [x] Example with filters, icons, refresh, empty results, and errors.
 - [x] Dart, widget, and native fixture tests; sandbox discovery smoke check.
 - [x] GitHub Actions for quality checks, Dart/widget tests, and native macOS tests.
@@ -29,14 +31,10 @@ Use bundle identifiers, app paths, and macOS metadata throughout the API.
 
 ## Next APIs
 
-- [ ] `detectAppFrameworks`: define framework indicators and a result enum;
-      distinguish packaged components from the primary UI framework.
 - [ ] `appChanges`: watch accessible discovery locations, reconcile snapshots,
       and document missed/coalesced events and stream lifecycle.
 - [ ] `getDeclaredCapabilities`: read usage descriptions and entitlements;
       do not report them as another app's actual TCC grants.
-- [ ] `getInstallSourceInfo`: define a macOS-specific provenance model;
-      unknown installer/source information must remain unknown.
 
 ## Later
 
