@@ -13,9 +13,13 @@ void main() {
   Uint8List? iconResponse;
   PlatformException? lookupError;
   bool fail = false;
+  final searchFolders = <Map<String, String>>[];
+  Map<String, String>? pickedFolder;
 
   setUp(() {
     calls.clear();
+    searchFolders.clear();
+    pickedFolder = null;
     fail = false;
     lookupError = null;
     iconResponse = null;
@@ -45,6 +49,17 @@ void main() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
           calls.add(call);
+          if (call.method == 'listAppSearchFolders') return searchFolders;
+          if (call.method == 'addAppSearchFolder') {
+            final folder = pickedFolder;
+            if (folder != null) searchFolders.add(folder);
+            return folder;
+          }
+          if (call.method == 'removeAppSearchFolder') {
+            final id = (call.arguments as Map)['id'];
+            searchFolders.removeWhere((folder) => folder['id'] == id);
+            return null;
+          }
           if (call.method == 'getApp') {
             if (lookupError != null) throw lookupError!;
             return getResponse;
@@ -86,6 +101,37 @@ void main() {
   tearDown(() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, null);
+  });
+
+  testWidgets('adds and removes folders and refreshes the app list', (
+    tester,
+  ) async {
+    const path = '/Volumes/Work/Apps';
+    await tester.pumpWidget(const MaterialApp(home: MacosPluginExample()));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Search folders'));
+    await tester.pumpAndSettle();
+    expect(find.text('No extra search folders.'), findsOneWidget);
+
+    await tester.tap(find.text('Add folder'));
+    await tester.pumpAndSettle();
+    expect(calls.last.method, 'addAppSearchFolder');
+    expect(calls.where((call) => call.method == 'listApps'), hasLength(1));
+
+    pickedFolder = {'id': 'work', 'path': path};
+    await tester.tap(find.text('Add folder'));
+    await tester.pumpAndSettle();
+    expect(find.text(path), findsOneWidget);
+    expect(calls.where((call) => call.method == 'listApps'), hasLength(2));
+
+    await tester.tap(find.byTooltip('Remove search folder'));
+    await tester.pumpAndSettle();
+    expect(find.text('No extra search folders.'), findsOneWidget);
+    expect(calls.where((call) => call.method == 'listApps'), hasLength(3));
+    final removal = calls.singleWhere(
+      (call) => call.method == 'removeAppSearchFolder',
+    );
+    expect(removal.arguments, {'id': 'work'});
   });
 
   testWidgets('checks the selected app status in the lookup dialog', (

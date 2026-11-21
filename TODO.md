@@ -25,6 +25,7 @@ Use bundle identifiers, app paths, and macOS metadata throughout the API.
 - [x] `detectAppFrameworks`: report Flutter, Electron, and Qt bundle indicators.
 - [x] `getInstallSourceInfo`: report App Store receipt and web-download indicators with an unknown fallback.
 - [x] `getDeclaredCapabilities`: read usage descriptions and embedded entitlements.
+- [x] Additional search folders with persistent, read-only security-scoped bookmarks.
 - [x] Example with filters, icons, refresh, empty results, and errors.
 - [x] Dart, widget, and native fixture tests; sandbox discovery smoke check.
 - [x] GitHub Actions for quality checks, Dart/widget tests, and native macOS tests.
@@ -37,7 +38,6 @@ Use bundle identifiers, app paths, and macOS metadata throughout the API.
 
 ## Later
 
-- [ ] Assess additional discovery roots and user-granted access with security-scoped bookmarks.
 - [ ] Assess Spotlight supplementation without promising complete discovery.
 
 See [API capabilities](doc/api-capabilities.md) for discovery behavior and limitations.

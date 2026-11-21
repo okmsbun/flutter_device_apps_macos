@@ -223,15 +223,18 @@ final class MacosAppScanner {
     return directories
   }
 
-  func listApps(options: AppListOptions) throws -> [[String: Any]] {
+  func listApps(options: AppListOptions, additionalRoots: [URL] = []) throws -> [[String: Any]] {
     var apps: [[String: Any]] = []
     var visitedPaths = Set<String>()
+    var visitedRoots = Set<String>()
     var readableDirectories = 0
     var failedDirectories = 0
 
-    for directory in searchDirectories {
+    let directories = searchDirectories + additionalRoots.map { AppSearchDirectory(url: $0) }
+    for directory in directories {
       if directory.isSystem && !options.includeSystem { continue }
       let root = directory.url.resolvingSymlinksInPath().standardizedFileURL
+      guard visitedRoots.insert(root.path).inserted else { continue }
       do {
         // Preflight root access: an empty readable directory is a valid result.
         _ = try fileManager.contentsOfDirectory(

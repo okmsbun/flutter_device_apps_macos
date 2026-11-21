@@ -945,6 +945,66 @@ class RunnerTests: XCTestCase {
     waitForExpectations(timeout: 10)
   }
 
+  func testSearchFolderBookmarksPersistAndFeedTheNormalListAppsChannel() throws {
+    let suite = "flutter-device-apps-search-folders-\(UUID().uuidString)"
+    let prefs = try XCTUnwrap(UserDefaults(suiteName: suite))
+    defer { prefs.removePersistentDomain(forName: suite) }
+
+    let extra = root.appendingPathComponent("ExtraApps")
+    _ = try app("Extra.app", in: extra, bundleIdentifier: "com.example.discovery.extra")
+    _ = try app("Agent.app", in: extra, extra: ["LSUIElement": true])
+    _ = try app("Default.app", bundleIdentifier: "com.example.discovery.default")
+
+    let initial = AppSearchFolders(defaults: prefs)
+    let entry = try initial.add(extra)
+    XCTAssertEqual(try initial.add(extra), entry)
+    _ = try initial.add(userApps)
+    let id = try XCTUnwrap(entry["id"])
+
+    let restored = AppSearchFolders(defaults: prefs)
+    XCTAssertEqual(restored.list().count, 2)
+    XCTAssertEqual(restored.list().first, entry)
+    do {
+      let access = restored.start()
+      defer { access.stop() }
+      XCTAssertEqual(
+        Set(access.scopedURLs.map { $0.resolvingSymlinksInPath().path }),
+        Set([extra, userApps!].map { $0.resolvingSymlinksInPath().path })
+      )
+    }
+
+    let plugin = FlutterDeviceAppsMacosPlugin(
+      scanner: MacosAppScanner(searchDirectories: directories), searchFolders: restored
+    )
+    let list = FlutterMethodCall(
+      methodName: "listApps", arguments: ["bundleIdentifierPrefix": "com.example.discovery."]
+    )
+    let included = expectation(description: "saved folder included")
+    plugin.handle(list) { result in
+      let apps = result as? [[String: Any]]
+      XCTAssertEqual(apps?.compactMap { $0["appName"] as? String }, ["Default", "Extra"])
+      included.fulfill()
+    }
+    waitForExpectations(timeout: 10)
+
+    let removed = expectation(description: "saved folder removed")
+    plugin.handle(FlutterMethodCall(methodName: "removeAppSearchFolder", arguments: ["id": id])) { result in
+      XCTAssertNil(result)
+      removed.fulfill()
+    }
+    waitForExpectations(timeout: 10)
+    XCTAssertEqual(initial.list().count, 1)
+
+    let excluded = expectation(description: "removed folder excluded")
+    plugin.handle(list) { result in
+      let apps = result as? [[String: Any]]
+      XCTAssertEqual(apps?.compactMap { $0["appName"] as? String }, ["Default"])
+      excluded.fulfill()
+    }
+    waitForExpectations(timeout: 10)
+    XCTAssertTrue(fm.fileExists(atPath: extra.path))
+  }
+
   func testDefaultBundleLookupWorksInTheHostSandbox() throws {
     let info = try MacosAppScanner().getApp(target: .bundleIdentifier("com.apple.TextEdit"), options: AppListOptions())
     XCTAssertEqual(info?["bundleIdentifier"] as? String, "com.apple.TextEdit")

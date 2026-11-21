@@ -1,6 +1,7 @@
 import 'package:flutter_device_apps_macos/flutter_device_apps_macos.dart';
 import 'package:material_ui/material_ui.dart';
 
+import 'app_search_folders_dialog.dart';
 import 'get_app_dialog.dart';
 import 'get_apps_dialog.dart';
 
@@ -84,6 +85,14 @@ class _MacosPluginExampleState extends State<MacosPluginExample> {
             ),
             tooltip: 'Get apps',
             icon: const Icon(Icons.list_alt),
+          ),
+          IconButton(
+            onPressed: () => showDialog<void>(
+              context: context,
+              builder: (_) => AppSearchFoldersDialog(onChanged: _reload),
+            ),
+            tooltip: 'Search folders',
+            icon: const Icon(Icons.create_new_folder_outlined),
           ),
           IconButton(
             onPressed: _reload,

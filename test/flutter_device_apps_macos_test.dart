@@ -463,6 +463,42 @@ void main() {
     );
   });
 
+  group('app search folders', () {
+    test('adds, lists, and removes folders by their stable IDs', () async {
+      const folder = {'id': 'folder-id', 'path': '/Volumes/Work/Apps'};
+      response = folder;
+
+      final added = await FlutterDeviceAppsMacos.addAppSearchFolder();
+      expect(added?.id, folder['id']);
+      expect(added?.path, folder['path']);
+
+      response = [folder];
+      final folders = await FlutterDeviceAppsMacos.listAppSearchFolders();
+      expect(folders.single.id, added?.id);
+      expect(folders.single.path, added?.path);
+
+      response = null;
+      await FlutterDeviceAppsMacos.removeAppSearchFolder(id: folders.single.id);
+      expect(calls.map((call) => call.method), [
+        'addAppSearchFolder',
+        'listAppSearchFolders',
+        'removeAppSearchFolder',
+      ]);
+      expect(calls.last.arguments, {'id': folder['id']});
+    });
+
+    test('preserves cancellation and rejects empty folder IDs', () async {
+      response = null;
+      expect(await FlutterDeviceAppsMacos.addAppSearchFolder(), isNull);
+      expect(await FlutterDeviceAppsMacos.listAppSearchFolders(), isEmpty);
+      await expectLater(
+        FlutterDeviceAppsMacos.removeAppSearchFolder(id: ' '),
+        throwsArgumentError,
+      );
+      expect(calls, hasLength(2));
+    });
+  });
+
   group('app inspection', () {
     test(
       'decodes declared capabilities and preserves nested entitlement values',

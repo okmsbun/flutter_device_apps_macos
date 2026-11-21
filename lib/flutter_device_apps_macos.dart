@@ -6,11 +6,13 @@ import 'package:flutter/services.dart';
 import 'macos_app_declared_capabilities.dart';
 import 'macos_app_info.dart';
 import 'macos_app_install_source_info.dart';
+import 'macos_app_search_folder.dart';
 
 export 'macos_app_declared_capabilities.dart' show MacosAppDeclaredCapabilities;
 export 'macos_app_info.dart' show MacosAppInfo;
 export 'macos_app_install_source_info.dart'
     show MacosAppInstallSource, MacosAppInstallSourceInfo;
+export 'macos_app_search_folder.dart' show MacosAppSearchFolder;
 
 /// Framework components identified by known files in a macOS app bundle.
 enum MacosAppFramework {
@@ -68,7 +70,8 @@ abstract final class FlutterDeviceAppsMacos {
   ///
   /// Scans `/Applications`, `~/Applications`, `/System/Applications`, and
   /// `/System/Library/CoreServices`, including their non-package subdirectories.
-  /// Discovery skips app bundle contents and other folders and volumes.
+  /// Also scans accessible folders registered by [addAppSearchFolder].
+  /// Discovery skips app bundle contents and locations outside these roots.
   /// App Sandbox and filesystem permissions can limit the results.
   ///
   /// [includeSystem] includes apps in system locations (default: false).
@@ -113,6 +116,33 @@ abstract final class FlutterDeviceAppsMacos {
           'bundleIdentifierContains': bundleIdentifierContains,
         });
     return _decodeApps(raw);
+  }
+
+  /// Opens the macOS folder picker and registers the selected folder for [listApps].
+  ///
+  /// The read-only bookmark persists across launches of the host app.
+  /// Returns null on cancellation. A [PlatformException] with
+  /// `ERR_SEARCH_FOLDERS` reports a bookmark creation or storage failure.
+  static Future<MacosAppSearchFolder?> addAppSearchFolder() async {
+    final map = await _mch.invokeMapMethod<String, Object?>(
+      'addAppSearchFolder',
+    );
+    return map == null ? null : MacosAppSearchFolder.fromMap(map);
+  }
+
+  /// Lists the host app's saved search folders, including unavailable folders.
+  static Future<List<MacosAppSearchFolder>> listAppSearchFolders() async {
+    final folders = await _mch.invokeListMethod<Map>('listAppSearchFolders');
+    return [
+      for (final folder in folders ?? const <Map>[])
+        MacosAppSearchFolder.fromMap(folder.cast<String, Object?>()),
+    ];
+  }
+
+  /// Stops including the saved folder with this [id] in future scans.
+  static Future<void> removeAppSearchFolder({required String id}) async {
+    if (id.trim().isEmpty) throw ArgumentError.value(id, 'id');
+    await _mch.invokeMethod<void>('removeAppSearchFolder', {'id': id});
   }
 
   /// Gets one accessible macOS app by bundle ID or an absolute app bundle path.

@@ -15,17 +15,19 @@ private enum AppActionError: LocalizedError {
 
 public class FlutterDeviceAppsMacosPlugin: NSObject, FlutterPlugin {
   private let scanner: MacosAppScanner
+  private let searchFolders: AppSearchFolders
   private let worker = DispatchQueue(label: "flutter_device_apps_macos/scan", qos: .userInitiated)
   private let openApplication: (URL, @escaping (Error?) -> Void) -> Void
   private let revealApplication: (URL) -> Void
   private let trashApplication: (URL) throws -> Void
 
   public override convenience init() {
-    self.init(scanner: MacosAppScanner())
+    self.init(scanner: MacosAppScanner(), searchFolders: .shared)
   }
 
   init(
     scanner: MacosAppScanner,
+    searchFolders: AppSearchFolders = AppSearchFolders(),
     openApplication: @escaping (URL, @escaping (Error?) -> Void) -> Void = { url, finish in
       NSWorkspace.shared.openApplication(at: url, configuration: .init()) { app, error in
         finish(error ?? (app == nil ? AppActionError.launchFailed : nil))
@@ -37,6 +39,7 @@ public class FlutterDeviceAppsMacosPlugin: NSObject, FlutterPlugin {
     }
   ) {
     self.scanner = scanner
+    self.searchFolders = searchFolders
     self.openApplication = openApplication
     self.revealApplication = revealApplication
     self.trashApplication = trashApplication
@@ -57,17 +60,31 @@ public class FlutterDeviceAppsMacosPlugin: NSObject, FlutterPlugin {
       switch call.method {
       case "listApps":
         let options = try AppListOptions(arguments: call.arguments)
-        perform(errorCode: "ERR_LIST", result: result) {
-          try self.scanner.listApps(options: options).map(Self.encodeApp)
+        performQuery(errorCode: "ERR_LIST", result: result) { roots in
+          try self.scanner.listApps(options: options, additionalRoots: roots).map(Self.encodeApp)
+        }
+      case "addAppSearchFolder":
+        addAppSearchFolder(result: result)
+      case "listAppSearchFolders":
+        perform(errorCode: "ERR_SEARCH_FOLDERS", result: result) { self.searchFolders.list() }
+      case "removeAppSearchFolder":
+        let arguments = try AppMethodArguments(call.arguments, method: call.method)
+        guard let id = try arguments.string("id"),
+              !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+          throw AppScanError.invalidArgument("A search folder id is required")
+        }
+        perform(errorCode: "ERR_SEARCH_FOLDERS", result: result) {
+          try self.searchFolders.remove(id: id)
+          return nil
         }
       case "getApp":
         let request = try AppLookupRequest(arguments: call.arguments)
-        perform(errorCode: "ERR_GET", result: result) {
+        performQuery(errorCode: "ERR_GET", result: result) { _ in
           try self.scanner.getApp(target: request.target, options: request.options).map(Self.encodeApp)
         }
       case "getApps":
         let request = try AppBatchLookupRequest(arguments: call.arguments)
-        perform(errorCode: "ERR_GET_APPS", result: result) {
+        performQuery(errorCode: "ERR_GET_APPS", result: result) { _ in
           try self.scanner.getApps(targets: request.targets, options: request.options).map(Self.encodeApp)
         }
       case "getAppIcon":
@@ -143,13 +160,42 @@ public class FlutterDeviceAppsMacosPlugin: NSObject, FlutterPlugin {
     }
   }
 
+  private func addAppSearchFolder(result: @escaping FlutterResult) {
+    let panel = NSOpenPanel()
+    panel.canChooseFiles = false
+    panel.canChooseDirectories = true
+    panel.treatsFilePackagesAsDirectories = false
+    panel.message = "Choose a folder to scan for apps."
+    panel.begin { response in
+      guard response == .OK, let folder = panel.url else {
+        result(nil)
+        return
+      }
+      self.perform(errorCode: "ERR_SEARCH_FOLDERS", result: result) {
+        defer { folder.stopAccessingSecurityScopedResource() }
+        return try self.searchFolders.add(folder)
+      }
+    }
+  }
+
   private func performLookup(
     _ call: FlutterMethodCall, errorCode: String, result: @escaping FlutterResult,
     operation: @escaping (AppLookupTarget) throws -> Any?
   ) throws {
     let arguments = try AppMethodArguments(call.arguments, method: call.method)
     let target = try arguments.lookupTarget()
-    perform(errorCode: errorCode, result: result) { try operation(target) }
+    performQuery(errorCode: errorCode, result: result) { _ in try operation(target) }
+  }
+
+  private func performQuery(
+    errorCode: String, result: @escaping FlutterResult,
+    operation: @escaping ([URL]) throws -> Any?
+  ) {
+    perform(errorCode: errorCode, result: result) {
+      let access = self.searchFolders.start()
+      defer { access.stop() }
+      return try operation(access.urls)
+    }
   }
 
   private func performAppAction(
@@ -157,7 +203,9 @@ public class FlutterDeviceAppsMacosPlugin: NSObject, FlutterPlugin {
     action: @escaping (URL, @escaping (Error?) -> Void) throws -> Void
   ) {
     worker.async {
+      let access = self.searchFolders.start()
       func finish(_ error: Error?) {
+        access.stop()
         let response = error.map { failure in
           let native = failure as NSError
           let code = (failure as? AppActionError) == .unavailable ? "APP_UNAVAILABLE" : errorCode
