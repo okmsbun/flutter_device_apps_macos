@@ -49,6 +49,16 @@ void main() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
           calls.add(call);
+          if (call.method == 'listRunningApps') {
+            return [
+              {
+                'appName': 'Running Editor',
+                'processIdentifier': 123,
+                'isActive': true,
+              },
+            ];
+          }
+          if (call.method == 'getDefaultAppForFile') return getResponse;
           if (call.method == 'listAppSearchFolders') return searchFolders;
           if (call.method == 'addAppSearchFolder') {
             final folder = pickedFolder;
@@ -101,6 +111,40 @@ void main() {
   tearDown(() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, null);
+  });
+
+  testWidgets('shows running apps and the default app for a file', (
+    tester,
+  ) async {
+    await tester.pumpWidget(const MaterialApp(home: MacosPluginExample()));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Running apps'));
+    await tester.pumpAndSettle();
+    expect(calls.last.method, 'listRunningApps');
+    expect(find.text('Running Editor'), findsOneWidget);
+    expect(find.text('PID 123'), findsOneWidget);
+    expect(find.text('Active'), findsOneWidget);
+    await tester.tap(find.text('Refresh snapshot'));
+    await tester.pumpAndSettle();
+    expect(
+      calls.where((call) => call.method == 'listRunningApps'),
+      hasLength(2),
+    );
+    await tester.tap(find.text('Close'));
+    await tester.pumpAndSettle();
+
+    const path = '/Users/test/Document.pdf';
+    await tester.tap(find.byTooltip('Default app for a file'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Absolute file path'),
+      path,
+    );
+    await tester.tap(find.text('Find app'));
+    await tester.pumpAndSettle();
+    expect(calls.last.method, 'getDefaultAppForFile');
+    expect(calls.last.arguments, {'filePath': path});
+    expect(find.textContaining('Lookup Editor'), findsOneWidget);
   });
 
   testWidgets('opts into Spotlight and can turn it off again', (tester) async {

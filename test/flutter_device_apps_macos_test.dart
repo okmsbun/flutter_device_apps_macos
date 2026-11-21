@@ -466,6 +466,71 @@ void main() {
     );
   });
 
+  test(
+    'listRunningApps preserves multiple instances and optional fields',
+    () async {
+      response = [
+        {
+          'appName': 'Editor',
+          'bundleIdentifier': 'com.example.editor',
+          'appPath': '/Applications/Editor.app',
+          'processIdentifier': 100,
+          'isActive': true,
+        },
+        {
+          'bundleIdentifier': 'com.example.editor',
+          'processIdentifier': 101,
+          'isActive': false,
+        },
+        {'isActive': false},
+      ];
+      final apps = await FlutterDeviceAppsMacos.listRunningApps();
+      expect(calls.single.method, 'listRunningApps');
+      expect(calls.single.arguments, isNull);
+      expect(apps.map((app) => app.processIdentifier), [100, 101, null]);
+      expect(apps.take(2).map((app) => app.bundleIdentifier), [
+        'com.example.editor',
+        'com.example.editor',
+      ]);
+      expect(apps.first.appName, 'Editor');
+      expect(apps.first.appPath, '/Applications/Editor.app');
+      expect(apps.first.isActive, isTrue);
+      expect(apps.last.appName, isNull);
+      expect(apps.last.appPath, isNull);
+      expect(apps.last.isActive, isFalse);
+    },
+  );
+
+  test(
+    'getDefaultAppForFile forwards a file path and decodes the handler',
+    () async {
+      const path = '/Users/test/My Document.pdf';
+      response = {
+        'appName': 'PDF Reader',
+        'bundleIdentifier': 'com.example.reader',
+        'appPath': '/Applications/PDF Reader.app',
+      };
+      final app = await FlutterDeviceAppsMacos.getDefaultAppForFile(
+        filePath: path,
+      );
+      expect(calls.single.method, 'getDefaultAppForFile');
+      expect(calls.single.arguments, {'filePath': path});
+      expect(app?.appName, 'PDF Reader');
+      expect(app?.appPath, '/Applications/PDF Reader.app');
+
+      response = null;
+      expect(
+        await FlutterDeviceAppsMacos.getDefaultAppForFile(filePath: path),
+        isNull,
+      );
+      await expectLater(
+        FlutterDeviceAppsMacos.getDefaultAppForFile(filePath: 'document.pdf'),
+        throwsArgumentError,
+      );
+      expect(calls, hasLength(2));
+    },
+  );
+
   group('app search folders', () {
     test('adds, lists, and removes folders by their stable IDs', () async {
       const folder = {'id': 'folder-id', 'path': '/Volumes/Work/Apps'};

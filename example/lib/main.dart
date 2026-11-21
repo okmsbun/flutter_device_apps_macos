@@ -2,8 +2,10 @@ import 'package:flutter_device_apps_macos/flutter_device_apps_macos.dart';
 import 'package:material_ui/material_ui.dart';
 
 import 'app_search_folders_dialog.dart';
+import 'default_app_for_file_dialog.dart';
 import 'get_app_dialog.dart';
 import 'get_apps_dialog.dart';
+import 'running_apps_dialog.dart';
 
 void main() {
   runApp(const MaterialApp(home: MacosPluginExample()));
@@ -75,6 +77,22 @@ class _MacosPluginExampleState extends State<MacosPluginExample> {
       appBar: AppBar(
         title: const Text('flutter_device_apps_macos'),
         actions: [
+          IconButton(
+            onPressed: () => showDialog<void>(
+              context: context,
+              builder: (_) => const RunningAppsDialog(),
+            ),
+            tooltip: 'Running apps',
+            icon: const Icon(Icons.memory),
+          ),
+          IconButton(
+            onPressed: () => showDialog<void>(
+              context: context,
+              builder: (_) => const DefaultAppForFileDialog(),
+            ),
+            tooltip: 'Default app for a file',
+            icon: const Icon(Icons.insert_drive_file_outlined),
+          ),
           IconButton(
             onPressed: _openAppLookup,
             tooltip: 'Get app',

@@ -17,6 +17,7 @@ public class FlutterDeviceAppsMacosPlugin: NSObject, FlutterPlugin {
   private let scanner: MacosAppScanner
   private let searchFolders: AppSearchFolders
   private let searchSpotlight: (@escaping ([URL]) -> Void) -> Void
+  private let defaultAppForFile: (URL) -> URL?
   private let worker = DispatchQueue(label: "flutter_device_apps_macos/scan", qos: .userInitiated)
   private let openApplication: (URL, @escaping (Error?) -> Void) -> Void
   private let revealApplication: (URL) -> Void
@@ -30,6 +31,7 @@ public class FlutterDeviceAppsMacosPlugin: NSObject, FlutterPlugin {
     scanner: MacosAppScanner,
     searchFolders: AppSearchFolders = AppSearchFolders(),
     searchSpotlight: @escaping (@escaping ([URL]) -> Void) -> Void = SpotlightAppSearch.search,
+    defaultAppForFile: @escaping (URL) -> URL? = { NSWorkspace.shared.urlForApplication(toOpen: $0) },
     openApplication: @escaping (URL, @escaping (Error?) -> Void) -> Void = { url, finish in
       NSWorkspace.shared.openApplication(at: url, configuration: .init()) { app, error in
         finish(error ?? (app == nil ? AppActionError.launchFailed : nil))
@@ -43,6 +45,7 @@ public class FlutterDeviceAppsMacosPlugin: NSObject, FlutterPlugin {
     self.scanner = scanner
     self.searchFolders = searchFolders
     self.searchSpotlight = searchSpotlight
+    self.defaultAppForFile = defaultAppForFile
     self.openApplication = openApplication
     self.revealApplication = revealApplication
     self.trashApplication = trashApplication
@@ -74,6 +77,20 @@ public class FlutterDeviceAppsMacosPlugin: NSObject, FlutterPlugin {
           searchSpotlight(scan)
         } else {
           scan([])
+        }
+      case "listRunningApps":
+        DispatchQueue.main.async {
+          result(NSWorkspace.shared.runningApplications.filter { !$0.isTerminated }.map(Self.encodeRunningApp))
+        }
+      case "getDefaultAppForFile":
+        let arguments = try AppMethodArguments(call.arguments, method: call.method)
+        guard let path = try arguments.string("filePath"), path.hasPrefix("/"), !path.contains("\0") else {
+          throw AppScanError.invalidArgument("filePath must be an absolute filesystem path")
+        }
+        performQuery(errorCode: "ERR_DEFAULT_APP", result: result) { _ in
+          guard let url = self.defaultAppForFile(URL(fileURLWithPath: path)),
+                url.isFileURL else { return nil }
+          return try self.scanner.getApp(target: .appPath(url.path), options: AppListOptions())
         }
       case "addAppSearchFolder":
         addAppSearchFolder(result: result)
@@ -152,6 +169,16 @@ public class FlutterDeviceAppsMacosPlugin: NSObject, FlutterPlugin {
     } catch {
       result(FlutterError(code: "ARG", message: error.localizedDescription, details: nil))
     }
+  }
+
+  private static func encodeRunningApp(_ app: NSRunningApplication) -> [String: Any] {
+    var fields: [String: Any] = ["isActive": app.isActive]
+    fields["appName"] = app.localizedName
+    fields["bundleIdentifier"] = app.bundleIdentifier
+    fields["appPath"] = app.bundleURL?.path
+    let pid = app.processIdentifier
+    if pid > 0 { fields["processIdentifier"] = Int(pid) }
+    return fields
   }
 
   private static func encodeApp(_ app: [String: Any]) -> [String: Any] {

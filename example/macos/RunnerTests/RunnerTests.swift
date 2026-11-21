@@ -945,6 +945,56 @@ class RunnerTests: XCTestCase {
     waitForExpectations(timeout: 10)
   }
 
+  func testRunningAppsReportsTheHostApplication() {
+    let completed = expectation(description: "running apps snapshot")
+    let plugin = FlutterDeviceAppsMacosPlugin(scanner: MacosAppScanner())
+    plugin.handle(FlutterMethodCall(methodName: "listRunningApps", arguments: nil)) { result in
+      XCTAssertTrue(Thread.isMainThread)
+      let apps = result as? [[String: Any]]
+      let host = apps?.first {
+        $0["processIdentifier"] as? Int == Int(ProcessInfo.processInfo.processIdentifier)
+      }
+      XCTAssertEqual(host?["bundleIdentifier"] as? String, Bundle.main.bundleIdentifier)
+      XCTAssertNotNil(host?["appPath"] as? String)
+      XCTAssertNotNil(host?["isActive"] as? Bool)
+      completed.fulfill()
+    }
+    waitForExpectations(timeout: 10)
+  }
+
+  func testDefaultAppForFileUsesTheResolvedAppCopyWithoutScanning() throws {
+    let document = root.appendingPathComponent("My Document.pdf")
+    try Data().write(to: document)
+    try app("Other Reader.app", bundleIdentifier: "com.example.reader")
+    let handler = try app("PDF Reader.app", in: root, bundleIdentifier: "com.example.reader")
+    let restricted = DirectoryReadDenyingFileManager(denied: [userApps, systemApps])
+    let plugin = FlutterDeviceAppsMacosPlugin(
+      scanner: MacosAppScanner(searchDirectories: directories, fileManager: restricted),
+      defaultAppForFile: { $0.path == document.path ? handler : nil }
+    )
+    for (path, expected) in [
+      (document.path, handler.resolvingSymlinksInPath().standardizedFileURL.path),
+      (root.appendingPathComponent("Missing.pdf").path, nil),
+    ] {
+      let completed = expectation(description: "default app for file")
+      plugin.handle(FlutterMethodCall(
+        methodName: "getDefaultAppForFile", arguments: ["filePath": path]
+      )) { result in
+        XCTAssertTrue(Thread.isMainThread)
+        if let expected = expected {
+          let app = result as? [String: Any]
+          XCTAssertEqual(app?["appPath"] as? String, expected)
+          XCTAssertEqual(app?["bundleIdentifier"] as? String, "com.example.reader")
+        } else {
+          XCTAssertNil(result)
+        }
+        completed.fulfill()
+      }
+    }
+    waitForExpectations(timeout: 10)
+    XCTAssertEqual(restricted.directoryReadCount, 0)
+  }
+
   func testSpotlightOptInMergesValidCandidatesUsingTheListFilters() throws {
     let id = "com.example.editor"
     let scanned = try app("Scanned.app", bundleIdentifier: id)

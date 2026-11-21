@@ -7,12 +7,14 @@ import 'macos_app_declared_capabilities.dart';
 import 'macos_app_info.dart';
 import 'macos_app_install_source_info.dart';
 import 'macos_app_search_folder.dart';
+import 'macos_running_app_info.dart';
 
 export 'macos_app_declared_capabilities.dart' show MacosAppDeclaredCapabilities;
 export 'macos_app_info.dart' show MacosAppInfo;
 export 'macos_app_install_source_info.dart'
     show MacosAppInstallSource, MacosAppInstallSourceInfo;
 export 'macos_app_search_folder.dart' show MacosAppSearchFolder;
+export 'macos_running_app_info.dart' show MacosRunningAppInfo;
 
 /// Framework components identified by known files in a macOS app bundle.
 enum MacosAppFramework {
@@ -120,6 +122,39 @@ abstract final class FlutterDeviceAppsMacos {
           'bundleIdentifierContains': bundleIdentifierContains,
         });
     return _decodeApps(raw);
+  }
+
+  /// Returns a snapshot of the running applications reported by macOS.
+  ///
+  /// Multiple running instances with the same bundle identifier are included.
+  /// Optional fields are null when the system does not report them.
+  static Future<List<MacosRunningAppInfo>> listRunningApps() async {
+    final apps = await _mch.invokeListMethod<Map>('listRunningApps');
+    return [
+      for (final app in apps ?? const <Map>[])
+        MacosRunningAppInfo.fromMap(app.cast<String, Object?>()),
+    ];
+  }
+
+  /// Gets the application that macOS would use to open an existing file.
+  ///
+  /// Supply an absolute [filePath]. Returns null when the file or its default
+  /// app is unavailable. Invalid paths throw [ArgumentError].
+  static Future<MacosAppInfo?> getDefaultAppForFile({
+    required String filePath,
+  }) async {
+    if (!filePath.startsWith('/') || filePath.contains('\u0000')) {
+      throw ArgumentError.value(
+        filePath,
+        'filePath',
+        'Use an absolute file path.',
+      );
+    }
+    final map = await _mch.invokeMapMethod<String, Object?>(
+      'getDefaultAppForFile',
+      {'filePath': filePath},
+    );
+    return map == null ? null : MacosAppInfo.fromMap(map);
   }
 
   /// Opens the macOS folder picker and registers the selected folder for [listApps].
