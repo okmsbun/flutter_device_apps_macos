@@ -1,7 +1,7 @@
 # macOS API capabilities
 
 `flutter_device_apps_macos` discovers and inspects macOS app bundles.
-Currently implemented: `FlutterDeviceAppsMacos.listApps`, `getApp`, and `MacosAppInfo`.
+Currently implemented: `FlutterDeviceAppsMacos.listApps`, `getApp`, `getApps`, and `MacosAppInfo`.
 See [TODO](../TODO.md) for planned APIs.
 
 ## Discovery scope
@@ -48,6 +48,18 @@ without executables. List filters are not applied. `includeIcon` defaults to fal
 Missing, blank, conflicting, or invalid targets throw `ArgumentError` in Dart.
 Malformed direct method-channel arguments produce `ARG`. Unexpected native
 lookup failures produce `ERR_GET`; they are not treated as a missing app.
+
+## Batch app lookup
+
+`getApps` accepts bundle IDs and absolute app paths in a single ordered list.
+Each entry uses the single app lookup rules. Missing or inaccessible apps are
+skipped, and the first match for each resolved path is returned in input order.
+Distinct copies with the same bundle ID remain separate. Empty input or no
+matches returns `[]`.
+
+The batch shares `includeIcons`, `includeArchitectures`, `includeSize`, and
+`includeSigningInfo` options across all matches. Invalid targets throw
+`ArgumentError`. Unexpected lookup failures produce `ERR_GET_APPS`.
 
 ## Filters and icons
 

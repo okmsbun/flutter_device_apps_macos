@@ -270,6 +270,74 @@ void main() {
     );
   });
 
+  group('getApps', () {
+    test('sends an ordered batch and metadata options in one call', () async {
+      const targets = [
+        'com.example.editor',
+        '/Applications/Editor Copy.app',
+        'com.example.missing',
+        'com.example.editor',
+      ];
+      response = [
+        {'appPath': '/Applications/Editor.app', 'bundleSizeBytes': 2048},
+        {'appPath': '/Applications/Editor Copy.app', 'bundleSizeBytes': 4096},
+      ];
+
+      final apps = await FlutterDeviceAppsMacos.getApps(
+        targets,
+        includeIcons: true,
+        includeArchitectures: true,
+        includeSize: true,
+        includeSigningInfo: true,
+      );
+
+      expect(calls.single.method, 'getApps');
+      expect(calls.single.arguments, {
+        'targets': targets,
+        'includeIcons': true,
+        'includeArchitectures': true,
+        'includeSize': true,
+        'includeSigningInfo': true,
+      });
+      expect(apps.map((app) => app.appPath), [
+        '/Applications/Editor.app',
+        '/Applications/Editor Copy.app',
+      ]);
+      expect(apps.map((app) => app.bundleSizeBytes), [2048, 4096]);
+    });
+
+    test('handles empty input and rejects malformed targets in Dart', () async {
+      expect(await FlutterDeviceAppsMacos.getApps([]), isEmpty);
+      for (final target in [
+        '',
+        ' ',
+        'com.example.\u0000app',
+        'Folder/App.app',
+        'file:///Apps/App.app',
+      ]) {
+        await expectLater(
+          FlutterDeviceAppsMacos.getApps(['com.example.valid', target]),
+          throwsArgumentError,
+        );
+      }
+      expect(calls, isEmpty);
+    });
+
+    test('propagates unexpected native batch failures', () async {
+      error = PlatformException(code: 'ERR_GET_APPS');
+      await expectLater(
+        FlutterDeviceAppsMacos.getApps(['com.example.editor']),
+        throwsA(
+          isA<PlatformException>().having(
+            (e) => e.code,
+            'code',
+            'ERR_GET_APPS',
+          ),
+        ),
+      );
+    });
+  });
+
   group('MacosAppInfo', () {
     test(
       'keeps unavailable metadata null and protects the architecture list',

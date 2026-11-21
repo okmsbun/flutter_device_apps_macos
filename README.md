@@ -55,6 +55,18 @@ Provide exactly one target. Bundle ID lookup selects macOS's preferred copy;
 an absolute path selects that copy directly. Returns `null` if inaccessible or
 unavailable. Optional architecture, size, and signing options match `listApps`.
 
+## Get apps
+
+```dart
+final apps = await FlutterDeviceAppsMacos.getApps([
+  'com.apple.Safari',
+  '/Applications/Example Editor.app',
+]);
+```
+
+Results follow input order. Missing apps are skipped and each resolved path
+appears once. The example's **Get apps** dialog accepts one target per line.
+
 See [TODO](TODO.md) for planned APIs and [API capabilities](doc/api-capabilities.md)
 for discovery behavior and limitations.
 

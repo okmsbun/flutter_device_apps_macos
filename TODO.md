@@ -14,6 +14,7 @@ Use bundle identifiers, app paths, and macOS metadata throughout the API.
   prefix and substring filters, path deduplication, optional icons, and `[]` for no matches.
 - [x] `getApp`: preferred-copy bundle ID lookup or exact app path, optional metadata,
   and null when the selected app is unavailable or inaccessible.
+- [x] `getApps`: ordered batch lookup by bundle ID or app path, deduplicated by resolved path.
 - [x] Example with filters, icons, refresh, empty results, and errors.
 - [x] Dart, widget, and native fixture tests; sandbox discovery smoke check.
 - [x] GitHub Actions for quality checks, Dart/widget tests, and native macOS tests.
@@ -21,8 +22,6 @@ Use bundle identifiers, app paths, and macOS metadata throughout the API.
 
 ## Next APIs
 
-- [ ] `getApps`: batch lookup in one native request; preserve requested order
-  and define duplicate/missing entry handling.
 - [ ] `getAppIcon`: retrieve PNG bytes without loading all app metadata.
 - [ ] `isAppInstalled`: document the limits of a negative lookup result.
 - [ ] `isSystemApp`: use the same documented location heuristic as `MacosAppInfo.isSystem`.

@@ -33,6 +33,16 @@ private struct AppMethodArguments {
     }
     return text
   }
+
+  func lookupOptions(iconKey: String) throws -> AppListOptions {
+    try AppListOptions(
+      includeSystem: true, onlyLaunchable: false,
+      includeIcons: boolean(iconKey),
+      includeArchitectures: boolean("includeArchitectures"),
+      includeSize: boolean("includeSize"),
+      includeSigningInfo: boolean("includeSigningInfo")
+    )
+  }
 }
 
 struct AppListOptions {
@@ -121,13 +131,29 @@ struct AppLookupRequest {
     target = try AppLookupTarget(
       bundleIdentifier: values.string("bundleIdentifier"), appPath: values.string("appPath")
     )
-    options = try AppListOptions(
-      includeSystem: true, onlyLaunchable: false,
-      includeIcons: values.boolean("includeIcon"),
-      includeArchitectures: values.boolean("includeArchitectures"),
-      includeSize: values.boolean("includeSize"),
-      includeSigningInfo: values.boolean("includeSigningInfo")
-    )
+    options = try values.lookupOptions(iconKey: "includeIcon")
+  }
+}
+
+struct AppBatchLookupRequest {
+  let targets: [AppLookupTarget]
+  let options: AppListOptions
+
+  init(arguments: Any?) throws {
+    let parsed = try AppMethodArguments(arguments, method: "getApps")
+    guard let entries = parsed.values["targets"] as? [String] else {
+      throw AppScanError.invalidArgument("targets must be a list of strings")
+    }
+    targets = try entries.map { entry in
+      let isPath = entry.hasPrefix("/")
+      guard isPath || !entry.contains("/") else {
+        throw AppScanError.invalidArgument("targets must be bundle identifiers or absolute app paths")
+      }
+      return try AppLookupTarget(
+        bundleIdentifier: isPath ? nil : entry, appPath: isPath ? entry : nil
+      )
+    }
+    options = try parsed.lookupOptions(iconKey: "includeIcons")
   }
 }
 
@@ -262,6 +288,20 @@ final class MacosAppScanner {
   }
 
   func getApp(target: AppLookupTarget, options: AppListOptions) throws -> [String: Any]? {
+    guard let (url, info) = try resolveApp(target: target) else { return nil }
+    return lookupMap(url, info: info, options: options)
+  }
+
+  func getApps(targets: [AppLookupTarget], options: AppListOptions) throws -> [[String: Any]] {
+    var seenPaths = Set<String>()
+    return try targets.compactMap { target in
+      guard let (url, info) = try resolveApp(target: target),
+            seenPaths.insert(url.path).inserted else { return nil }
+      return lookupMap(url, info: info, options: options)
+    }
+  }
+
+  private func resolveApp(target: AppLookupTarget) throws -> (URL, [String: Any])? {
     let candidate: URL
     switch target {
     case .appPath(let path):
@@ -277,6 +317,10 @@ final class MacosAppScanner {
           let info = readInfo(url) else { return nil }
     if case .bundleIdentifier(let identifier) = target,
        info["CFBundleIdentifier"] as? String != identifier { return nil }
+    return (url, info)
+  }
+
+  private func lookupMap(_ url: URL, info: [String: Any], options: AppListOptions) -> [String: Any] {
     return appMap(
       url, info: info, executable: executableURL(url, info: info),
       isSystem: isSystemLocation(url), options: options

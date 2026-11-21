@@ -57,6 +57,31 @@ void main() {
         .setMockMethodCallHandler(channel, null);
   });
 
+  testWidgets('looks up a batch of bundle IDs and paths', (tester) async {
+    await tester.pumpWidget(const MaterialApp(home: MacosPluginExample()));
+    await tester.pumpAndSettle();
+    response = [
+      {'appName': 'Batch Editor', 'appPath': '/Applications/Editor Copy.app'},
+    ];
+
+    await tester.tap(find.byTooltip('Get apps'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('get-apps-targets')),
+      'com.example.editor\n\n/Applications/Editor Copy.app',
+    );
+    await tester.tap(find.text('Look up apps'));
+    await tester.pumpAndSettle();
+
+    final lookup = calls.where((call) => call.method == 'getApps').single;
+    expect((lookup.arguments as Map)['targets'], [
+      'com.example.editor',
+      '/Applications/Editor Copy.app',
+    ]);
+    expect(find.text('Batch Editor'), findsOneWidget);
+    expect(find.text('/Applications/Editor Copy.app'), findsOneWidget);
+  });
+
   testWidgets('loads and displays app metadata', (tester) async {
     await tester.pumpWidget(const MaterialApp(home: MacosPluginExample()));
     await tester.pumpAndSettle();

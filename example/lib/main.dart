@@ -2,6 +2,7 @@ import 'package:flutter_device_apps_macos/flutter_device_apps_macos.dart';
 import 'package:material_ui/material_ui.dart';
 
 import 'get_app_dialog.dart';
+import 'get_apps_dialog.dart';
 
 void main() {
   runApp(const MaterialApp(home: MacosPluginExample()));
@@ -74,6 +75,14 @@ class _MacosPluginExampleState extends State<MacosPluginExample> {
             onPressed: _openAppLookup,
             tooltip: 'Get app',
             icon: const Icon(Icons.manage_search),
+          ),
+          IconButton(
+            onPressed: () => showDialog<void>(
+              context: context,
+              builder: (_) => const GetAppsDialog(),
+            ),
+            tooltip: 'Get apps',
+            icon: const Icon(Icons.list_alt),
           ),
           IconButton(
             onPressed: _reload,

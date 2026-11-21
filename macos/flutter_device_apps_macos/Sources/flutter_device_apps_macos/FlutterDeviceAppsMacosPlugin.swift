@@ -37,6 +37,11 @@ public class FlutterDeviceAppsMacosPlugin: NSObject, FlutterPlugin {
         perform(errorCode: "ERR_GET", result: result) {
           try self.scanner.getApp(target: request.target, options: request.options).map(Self.encodeApp)
         }
+      case "getApps":
+        let request = try AppBatchLookupRequest(arguments: call.arguments)
+        perform(errorCode: "ERR_GET_APPS", result: result) {
+          try self.scanner.getApps(targets: request.targets, options: request.options).map(Self.encodeApp)
+        }
       default:
         result(FlutterMethodNotImplemented)
       }

@@ -593,6 +593,68 @@ class RunnerTests: XCTestCase {
     waitForExpectations(timeout: 10)
   }
 
+  func testBatchLookupPreservesOrderAndDeduplicatesResolvedCopies() throws {
+    let first = try app("First.app", bundleIdentifier: "com.example.copy")
+    let preferred = try app("Second.app", bundleIdentifier: "com.example.copy")
+    let alias = root.appendingPathComponent("Alias.app")
+    try fm.createSymbolicLink(at: alias, withDestinationURL: preferred)
+    let expectedPaths = [preferred, first].map { $0.resolvingSymlinksInPath().path }
+    var iconReads: [String] = []
+    let scanner = MacosAppScanner(
+      searchDirectories: directories, iconProvider: { url in
+        iconReads.append(url.path)
+        return Data([137, 80, 78, 71])
+      },
+      applicationResolver: { identifier in
+        XCTAssertFalse(Thread.isMainThread)
+        return identifier == "com.example.copy" ? preferred : nil
+      }
+    )
+    let plugin = FlutterDeviceAppsMacosPlugin(scanner: scanner)
+    let completed = expectation(description: "Ordered batch lookup")
+    plugin.handle(FlutterMethodCall(methodName: "getApps", arguments: [
+      "targets": ["com.example.copy", alias.path, "com.example.missing", first.path, preferred.path],
+      "includeIcons": true,
+    ])) { result in
+      XCTAssertTrue(Thread.isMainThread)
+      let apps = result as? [[String: Any]]
+      XCTAssertEqual(apps?.compactMap { $0["appPath"] as? String }, expectedPaths)
+      XCTAssertEqual(apps?.compactMap { $0["bundleIdentifier"] as? String },
+                     ["com.example.copy", "com.example.copy"])
+      XCTAssertEqual(iconReads, expectedPaths)
+      XCTAssertEqual((apps?.first?["iconBytes"] as? FlutterStandardTypedData)?.data,
+                     Data([137, 80, 78, 71]))
+      completed.fulfill()
+    }
+    waitForExpectations(timeout: 10)
+  }
+
+  func testBatchLookupRejectsInvalidTargetsAndReportsResolutionErrors() {
+    let plugin = FlutterDeviceAppsMacosPlugin(scanner: MacosAppScanner(applicationResolver: { _ in
+      throw NSError(domain: "lookup", code: 1)
+    }))
+    let invalid: [[String: Any]] = [
+      [:], ["targets": [1]], ["targets": [" "]], ["targets": ["Folder/App.app"]],
+      ["targets": ["com.example.\0app"]], ["targets": ["com.example.app"], "includeIcons": 1],
+    ]
+    var replies = 0
+    for arguments in invalid {
+      plugin.handle(FlutterMethodCall(methodName: "getApps", arguments: arguments)) {
+        XCTAssertEqual(($0 as? FlutterError)?.code, "ARG")
+        replies += 1
+      }
+    }
+    XCTAssertEqual(replies, invalid.count)
+    let completed = expectation(description: "Unexpected batch failure")
+    plugin.handle(FlutterMethodCall(methodName: "getApps", arguments: [
+      "targets": ["com.example.app"],
+    ])) {
+      XCTAssertEqual(($0 as? FlutterError)?.code, "ERR_GET_APPS")
+      completed.fulfill()
+    }
+    waitForExpectations(timeout: 10)
+  }
+
   func testDefaultBundleLookupWorksInTheHostSandbox() throws {
     let info = try MacosAppScanner().getApp(target: .bundleIdentifier("com.apple.TextEdit"), options: AppListOptions())
     XCTAssertEqual(info?["bundleIdentifier"] as? String, "com.apple.TextEdit")

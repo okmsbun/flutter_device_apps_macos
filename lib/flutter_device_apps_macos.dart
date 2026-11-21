@@ -13,6 +13,14 @@ abstract final class FlutterDeviceAppsMacos {
     'flutter_device_apps_macos/methods',
   );
 
+  static List<MacosAppInfo> _decodeApps(List<dynamic>? raw) =>
+      (raw ?? const <dynamic>[])
+          .map(
+            (entry) =>
+                MacosAppInfo.fromMap(Map<String, Object?>.from(entry as Map)),
+          )
+          .toList();
+
   /// Lists accessible app bundles in standard macOS application directories.
   ///
   /// Scans `/Applications`, `~/Applications`, `/System/Applications`, and
@@ -61,12 +69,7 @@ abstract final class FlutterDeviceAppsMacos {
           'bundleIdentifierPrefix': bundleIdentifierPrefix,
           'bundleIdentifierContains': bundleIdentifierContains,
         });
-    return (raw ?? const <dynamic>[])
-        .map(
-          (entry) =>
-              MacosAppInfo.fromMap(Map<String, Object?>.from(entry as Map)),
-        )
-        .toList();
+    return _decodeApps(raw);
   }
 
   /// Gets one accessible macOS app by bundle ID or an absolute app bundle path.
@@ -124,5 +127,46 @@ abstract final class FlutterDeviceAppsMacos {
     return raw == null
         ? null
         : MacosAppInfo.fromMap(Map<String, Object?>.from(raw));
+  }
+
+  /// Looks up bundle IDs and absolute app paths in one native request.
+  ///
+  /// Entries starting with `/` select an exact path. Other entries are bundle
+  /// IDs and select the preferred copy, following [getApp] semantics.
+  /// Returns accessible apps in input order, keeping the first match for each
+  /// resolved path. Distinct copies with the same bundle ID remain separate.
+  /// Empty input or no matches returns an empty list.
+  ///
+  /// Blank entries, NUL characters, and entries with a slash outside an
+  /// absolute path throw [ArgumentError]. Unexpected lookup failures throw a
+  /// [PlatformException] with `ERR_GET_APPS`.
+  static Future<List<MacosAppInfo>> getApps(
+    List<String> targets, {
+    bool includeIcons = false,
+    bool includeArchitectures = false,
+    bool includeSize = false,
+    bool includeSigningInfo = false,
+  }) async {
+    if (targets.isEmpty) return [];
+    for (final target in targets) {
+      if (target.trim().isEmpty ||
+          target.contains('\u0000') ||
+          (target.contains('/') && !target.startsWith('/'))) {
+        throw ArgumentError.value(
+          target,
+          'targets',
+          'Use a bundle identifier or an absolute app path.',
+        );
+      }
+    }
+
+    final List<dynamic>? raw = await _mch.invokeListMethod<dynamic>('getApps', {
+      'targets': targets,
+      'includeIcons': includeIcons,
+      'includeArchitectures': includeArchitectures,
+      'includeSize': includeSize,
+      'includeSigningInfo': includeSigningInfo,
+    });
+    return _decodeApps(raw);
   }
 }
