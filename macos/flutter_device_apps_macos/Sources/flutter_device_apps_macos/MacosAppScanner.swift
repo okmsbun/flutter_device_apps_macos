@@ -4,7 +4,7 @@ import Foundation
 import MachO
 import Security
 
-private struct AppMethodArguments {
+struct AppMethodArguments {
   let values: [String: Any]
 
   init(_ arguments: Any?, method: String) throws {
@@ -33,10 +33,34 @@ private struct AppMethodArguments {
     }
     return text
   }
+
+  func lookupTarget() throws -> AppLookupTarget {
+    try AppLookupTarget(
+      bundleIdentifier: string("bundleIdentifier"), appPath: string("appPath")
+    )
+  }
+
+  func absolutePath(_ key: String) throws -> String {
+    guard let path = try string(key), path.hasPrefix("/"), !path.contains("\0") else {
+      throw AppScanError.invalidArgument("\(key) must be an absolute filesystem path")
+    }
+    return path
+  }
+
+  func lookupOptions(iconKey: String) throws -> AppListOptions {
+    try AppListOptions(
+      includeSystem: true, onlyLaunchable: false,
+      includeIcons: boolean(iconKey),
+      includeArchitectures: boolean("includeArchitectures"),
+      includeSize: boolean("includeSize"),
+      includeSigningInfo: boolean("includeSigningInfo")
+    )
+  }
 }
 
 struct AppListOptions {
   var includeSystem = false
+  var includeSpotlight = false
   var onlyLaunchable = true
   var includeIcons = false
   var includeArchitectures = false
@@ -47,6 +71,7 @@ struct AppListOptions {
 
   init(
     includeSystem: Bool = false,
+    includeSpotlight: Bool = false,
     onlyLaunchable: Bool = true,
     includeIcons: Bool = false,
     includeArchitectures: Bool = false,
@@ -56,6 +81,7 @@ struct AppListOptions {
     bundleIdentifierContains: String? = nil
   ) {
     self.includeSystem = includeSystem
+    self.includeSpotlight = includeSpotlight
     self.onlyLaunchable = onlyLaunchable
     self.includeIcons = includeIcons
     self.includeArchitectures = includeArchitectures
@@ -69,6 +95,7 @@ struct AppListOptions {
     let values = try AppMethodArguments(arguments, method: "listApps")
     try self.init(
       includeSystem: values.boolean("includeSystem"),
+      includeSpotlight: values.boolean("includeSpotlight"),
       onlyLaunchable: values.boolean("onlyLaunchable", default: true),
       includeIcons: values.boolean("includeIcons"),
       includeArchitectures: values.boolean("includeArchitectures"),
@@ -118,16 +145,30 @@ struct AppLookupRequest {
 
   init(arguments: Any?) throws {
     let values = try AppMethodArguments(arguments, method: "getApp")
-    target = try AppLookupTarget(
-      bundleIdentifier: values.string("bundleIdentifier"), appPath: values.string("appPath")
-    )
-    options = try AppListOptions(
-      includeSystem: true, onlyLaunchable: false,
-      includeIcons: values.boolean("includeIcon"),
-      includeArchitectures: values.boolean("includeArchitectures"),
-      includeSize: values.boolean("includeSize"),
-      includeSigningInfo: values.boolean("includeSigningInfo")
-    )
+    target = try values.lookupTarget()
+    options = try values.lookupOptions(iconKey: "includeIcon")
+  }
+}
+
+struct AppBatchLookupRequest {
+  let targets: [AppLookupTarget]
+  let options: AppListOptions
+
+  init(arguments: Any?) throws {
+    let parsed = try AppMethodArguments(arguments, method: "getApps")
+    guard let entries = parsed.values["targets"] as? [String] else {
+      throw AppScanError.invalidArgument("targets must be a list of strings")
+    }
+    targets = try entries.map { entry in
+      let isPath = entry.hasPrefix("/")
+      guard isPath || !entry.contains("/") else {
+        throw AppScanError.invalidArgument("targets must be bundle identifiers or absolute app paths")
+      }
+      return try AppLookupTarget(
+        bundleIdentifier: isPath ? nil : entry, appPath: isPath ? entry : nil
+      )
+    }
+    options = try parsed.lookupOptions(iconKey: "includeIcons")
   }
 }
 
@@ -193,15 +234,33 @@ final class MacosAppScanner {
     return directories
   }
 
-  func listApps(options: AppListOptions) throws -> [[String: Any]] {
+  func listApps(
+    options: AppListOptions, additionalRoots: [URL] = [], spotlightCandidates: [URL] = []
+  ) throws -> [[String: Any]] {
     var apps: [[String: Any]] = []
     var visitedPaths = Set<String>()
+    var visitedRoots = Set<String>()
     var readableDirectories = 0
     var failedDirectories = 0
 
-    for directory in searchDirectories {
+    func appendApp(_ url: URL, fromSystemRoot: Bool = false) {
+      guard !visitedPaths.contains(url.path),
+            (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else { return }
+      let isSystem = fromSystemRoot || isSystemLocation(url)
+      if isSystem && !options.includeSystem { return }
+      guard let info = readInfo(url),
+            options.matches(bundleIdentifier: info["CFBundleIdentifier"] as? String) else { return }
+      let executable = executableURL(url, info: info)
+      if options.onlyLaunchable && !canLaunch(executable, info: info) { return }
+      visitedPaths.insert(url.path)
+      apps.append(appMap(url, info: info, executable: executable, isSystem: isSystem, options: options))
+    }
+
+    let directories = searchDirectories + additionalRoots.map { AppSearchDirectory(url: $0) }
+    for directory in directories {
       if directory.isSystem && !options.includeSystem { continue }
       let root = directory.url.resolvingSymlinksInPath().standardizedFileURL
+      guard visitedRoots.insert(root.path).inserted else { continue }
       do {
         // Preflight root access: an empty readable directory is a valid result.
         _ = try fileManager.contentsOfDirectory(
@@ -226,30 +285,16 @@ final class MacosAppScanner {
         guard entry.pathExtension.lowercased() == "app" else { continue }
         enumerator.skipDescendants()
         let url = entry.resolvingSymlinksInPath().standardizedFileURL
-        guard !visitedPaths.contains(url.path),
-              (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else {
-          continue
-        }
-        let isSystem = directory.isSystem || isSystemLocation(url)
-        if isSystem && !options.includeSystem { continue }
-        guard let info = readInfo(url),
-              options.matches(bundleIdentifier: info["CFBundleIdentifier"] as? String) else {
-          continue
-        }
-        let executable = executableURL(url, info: info)
-        if options.onlyLaunchable {
-          guard let executable = executable,
-                fileManager.isExecutableFile(atPath: executable.path),
-                (try? executable.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true,
-                !plistBoolean(info["LSBackgroundOnly"]),
-                !plistBoolean(info["LSUIElement"]) else { continue }
-        }
-        visitedPaths.insert(url.path)
-        apps.append(appMap(url, info: info, executable: executable,
-                           isSystem: isSystem, options: options))
+        appendApp(url, fromSystemRoot: directory.isSystem)
       }
     }
-    if readableDirectories == 0 && failedDirectories > 0 {
+    for candidate in spotlightCandidates where candidate.isFileURL {
+      let url = candidate.resolvingSymlinksInPath().standardizedFileURL
+      guard url.pathExtension.lowercased() == "app", !visitedPaths.contains(url.path),
+            isVisibleSpotlightApp(url) else { continue }
+      appendApp(url)
+    }
+    if readableDirectories == 0 && failedDirectories > 0 && apps.isEmpty {
       throw AppScanError.inaccessibleDirectories
     }
     return apps.sorted {
@@ -261,7 +306,54 @@ final class MacosAppScanner {
     }
   }
 
+  private func isVisibleSpotlightApp(_ url: URL) -> Bool {
+    guard !url.pathComponents.contains(where: { $0.hasPrefix(".") }),
+          (try? url.resourceValues(forKeys: [.isHiddenKey]).isHidden) != true else { return false }
+    var parent = url.deletingLastPathComponent()
+    while parent.pathComponents.count > 1 {
+      if parent.pathExtension.lowercased() == "app"
+        || (try? parent.resourceValues(forKeys: [.isPackageKey]).isPackage) == true {
+        return false
+      }
+      parent.deleteLastPathComponent()
+    }
+    return true
+  }
+
   func getApp(target: AppLookupTarget, options: AppListOptions) throws -> [String: Any]? {
+    guard let (url, info) = try resolveApp(target: target) else { return nil }
+    return lookupMap(url, info: info, options: options)
+  }
+
+  func getApps(targets: [AppLookupTarget], options: AppListOptions) throws -> [[String: Any]] {
+    var seenPaths = Set<String>()
+    return try targets.compactMap { target in
+      guard let (url, info) = try resolveApp(target: target),
+            seenPaths.insert(url.path).inserted else { return nil }
+      return lookupMap(url, info: info, options: options)
+    }
+  }
+
+  func getAppIcon(target: AppLookupTarget) throws -> Data? {
+    guard let (url, _) = try resolveApp(target: target) else { return nil }
+    return iconProvider(url)
+  }
+
+  func isAppInstalled(target: AppLookupTarget) throws -> Bool {
+    try resolveApp(target: target) != nil
+  }
+
+  func isSystemApp(target: AppLookupTarget) throws -> Bool? {
+    guard let (url, _) = try resolveApp(target: target) else { return nil }
+    return isSystemLocation(url)
+  }
+
+  func isAppLaunchable(target: AppLookupTarget) throws -> Bool {
+    guard let (url, info) = try resolveApp(target: target) else { return false }
+    return canLaunch(executableURL(url, info: info), info: info)
+  }
+
+  func resolveApp(target: AppLookupTarget) throws -> (URL, [String: Any])? {
     let candidate: URL
     switch target {
     case .appPath(let path):
@@ -277,6 +369,10 @@ final class MacosAppScanner {
           let info = readInfo(url) else { return nil }
     if case .bundleIdentifier(let identifier) = target,
        info["CFBundleIdentifier"] as? String != identifier { return nil }
+    return (url, info)
+  }
+
+  private func lookupMap(_ url: URL, info: [String: Any], options: AppListOptions) -> [String: Any] {
     return appMap(
       url, info: info, executable: executableURL(url, info: info),
       isSystem: isSystemLocation(url), options: options
@@ -311,6 +407,14 @@ final class MacosAppScanner {
           !name.isEmpty, name != ".", name != "..", !name.contains("/") else { return nil }
     return url.appendingPathComponent("Contents/MacOS", isDirectory: true)
       .appendingPathComponent(name)
+  }
+
+  private func canLaunch(_ executable: URL?, info: [String: Any]) -> Bool {
+    guard let executable = executable else { return false }
+    return fileManager.isExecutableFile(atPath: executable.path)
+      && (try? executable.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
+      && !plistBoolean(info["LSBackgroundOnly"])
+      && !plistBoolean(info["LSUIElement"])
   }
 
   private func plistBoolean(_ value: Any?) -> Bool {
@@ -395,17 +499,21 @@ final class MacosAppScanner {
   }
 
   private static func teamIdentifier(_ url: URL) -> String? {
+    guard let fields = signingInformation(url, flags: kSecCSSigningInformation),
+          let team = fields[kSecCodeInfoTeamIdentifier as String] as? String,
+          !team.isEmpty else { return nil }
+    return team
+  }
+
+  static func signingInformation(_ url: URL, flags: UInt32) -> [String: Any]? {
     var code: SecStaticCode?
     guard SecStaticCodeCreateWithPath(url as CFURL, SecCSFlags(), &code) == errSecSuccess,
           let code = code else { return nil }
     var information: CFDictionary?
     guard SecCodeCopySigningInformation(
-      code, SecCSFlags(rawValue: kSecCSSigningInformation), &information
-    ) == errSecSuccess,
-    let fields = information as? [String: Any],
-    let team = fields[kSecCodeInfoTeamIdentifier as String] as? String,
-    !team.isEmpty else { return nil }
-    return team
+      code, SecCSFlags(rawValue: flags), &information
+    ) == errSecSuccess else { return nil }
+    return information as? [String: Any]
   }
 
   private static func pngIcon(_ url: URL) -> Data? {

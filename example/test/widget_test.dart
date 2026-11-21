@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_device_apps_macos_example/main.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -5,16 +8,27 @@ import 'package:material_ui/material_ui.dart';
 
 void main() {
   const channel = MethodChannel('flutter_device_apps_macos/methods');
+  const filePicker = MethodChannel(
+    'flutter_device_apps_macos_example/file_picker',
+  );
   final calls = <MethodCall>[];
   Object? response;
   Object? getResponse;
+  Uint8List? iconResponse;
   PlatformException? lookupError;
   bool fail = false;
+  final searchFolders = <Map<String, String>>[];
+  Map<String, String>? pickedFolder;
+  Completer<void>? fileOpen;
 
   setUp(() {
     calls.clear();
+    searchFolders.clear();
+    pickedFolder = null;
+    fileOpen = null;
     fail = false;
     lookupError = null;
+    iconResponse = null;
     getResponse = {
       'appName': 'Lookup Editor',
       'bundleIdentifier': 'com.example.lookup',
@@ -41,9 +55,69 @@ void main() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
           calls.add(call);
+          if (call.method == 'listRunningApps') {
+            return [
+              {
+                'appName': 'Running Editor',
+                'processIdentifier': 123,
+                'isActive': true,
+              },
+            ];
+          }
+          if (call.method == 'getDefaultAppForFile') return getResponse;
+          if (call.method == 'listAppsForFile') {
+            return [
+              {
+                'appName': 'Compatible Editor',
+                'appPath': '/Applications/Compatible Editor.app',
+              },
+            ];
+          }
+          if (call.method == 'openFileWithApp') {
+            await fileOpen?.future;
+            return null;
+          }
+          if (call.method == 'listAppSearchFolders') return searchFolders;
+          if (call.method == 'addAppSearchFolder') {
+            final folder = pickedFolder;
+            if (folder != null) searchFolders.add(folder);
+            return folder;
+          }
+          if (call.method == 'removeAppSearchFolder') {
+            final id = (call.arguments as Map)['id'];
+            searchFolders.removeWhere((folder) => folder['id'] == id);
+            return null;
+          }
           if (call.method == 'getApp') {
             if (lookupError != null) throw lookupError!;
             return getResponse;
+          }
+          if (call.method == 'getAppIcon') return iconResponse;
+          if (call.method == 'isAppInstalled') return true;
+          if (call.method == 'isSystemApp') return null;
+          if (call.method == 'isAppLaunchable') return false;
+          if (call.method == 'detectAppFrameworks') return ['flutter', 'qt'];
+          if (call.method == 'getInstallSourceInfo') {
+            return {
+              'source': 'webDownload',
+              'hasAppStoreReceipt': false,
+              'quarantineAgentName': 'Safari',
+            };
+          }
+          if (call.method == 'getDeclaredCapabilities') {
+            return {
+              'usageDescriptions': {
+                'NSCameraUsageDescription': 'Capture a photo',
+              },
+              'entitlements': {'com.apple.security.device.camera': true},
+            };
+          }
+          if ([
+            'openApp',
+            'revealAppInFinder',
+            'moveAppToTrash',
+          ].contains(call.method)) {
+            return null;
           }
           if (fail) {
             throw PlatformException(code: 'ERR_LIST', message: 'Access denied');
@@ -55,6 +129,345 @@ void main() {
   tearDown(() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, null);
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(filePicker, null);
+  });
+
+  testWidgets('shows running apps and the default app for a file', (
+    tester,
+  ) async {
+    await tester.pumpWidget(const MaterialApp(home: MacosPluginExample()));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Running apps'));
+    await tester.pumpAndSettle();
+    expect(calls.last.method, 'listRunningApps');
+    expect(find.text('Running Editor'), findsOneWidget);
+    expect(find.text('PID 123'), findsOneWidget);
+    expect(find.text('Active'), findsOneWidget);
+    await tester.tap(find.text('Refresh snapshot'));
+    await tester.pumpAndSettle();
+    expect(
+      calls.where((call) => call.method == 'listRunningApps'),
+      hasLength(2),
+    );
+    await tester.tap(find.text('Close'));
+    await tester.pumpAndSettle();
+
+    const path = '/Users/test/Document.pdf';
+    await tester.tap(find.byTooltip('Open with'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Absolute file path'),
+      path,
+    );
+    await tester.tap(find.text('Find default app'));
+    await tester.pumpAndSettle();
+    expect(calls.last.method, 'getDefaultAppForFile');
+    expect(calls.last.arguments, {'filePath': path});
+    expect(find.text('Lookup Editor'), findsOneWidget);
+
+    await tester.tap(find.text('List compatible apps'));
+    await tester.pumpAndSettle();
+    expect(calls.last.method, 'listAppsForFile');
+    expect(calls.last.arguments, {'filePath': path});
+    expect(find.text('Compatible Editor'), findsOneWidget);
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+    expect(calls.last.method, 'openFileWithApp');
+    expect(calls.last.arguments, {
+      'filePath': path,
+      'appPath': '/Applications/Compatible Editor.app',
+    });
+    expect(find.text('File opened.'), findsOneWidget);
+  });
+
+  testWidgets('keeps a selected file accessible until opening completes', (
+    tester,
+  ) async {
+    const path = '/Users/test/Desktop/Screenshot.png';
+    const id = 'selected-file';
+    final pickerCalls = <MethodCall>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(filePicker, (call) async {
+          pickerCalls.add(call);
+          return call.method == 'chooseFile' ? {'id': id, 'path': path} : null;
+        });
+    final opening = Completer<void>();
+    fileOpen = opening;
+
+    await tester.pumpWidget(const MaterialApp(home: MacosPluginExample()));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Open with'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Choose file'));
+    await tester.pumpAndSettle();
+    expect(find.text(path), findsOneWidget);
+
+    await tester.tap(find.text('List compatible apps'));
+    await tester.pumpAndSettle();
+    expect(calls.last.arguments, {'filePath': path});
+    await tester.tap(find.text('Open'));
+    await tester.pump();
+    expect(calls.last.arguments, {
+      'filePath': path,
+      'appPath': '/Applications/Compatible Editor.app',
+    });
+
+    await tester.tap(find.text('Close'));
+    await tester.pumpAndSettle();
+    expect(pickerCalls.map((call) => call.method), ['chooseFile']);
+
+    opening.complete();
+    await tester.pumpAndSettle();
+    expect(pickerCalls.map((call) => call.method), [
+      'chooseFile',
+      'releaseFile',
+    ]);
+    expect(pickerCalls.last.arguments, id);
+  });
+
+  testWidgets('opts into Spotlight and can turn it off again', (tester) async {
+    await tester.pumpWidget(const MaterialApp(home: MacosPluginExample()));
+    await tester.pumpAndSettle();
+    final checkbox = find.widgetWithText(
+      CheckboxListTile,
+      'Include Spotlight results',
+    );
+    expect(tester.widget<CheckboxListTile>(checkbox).value, isFalse);
+
+    await tester.tap(checkbox);
+    await tester.pumpAndSettle();
+    expect(tester.widget<CheckboxListTile>(checkbox).value, isTrue);
+    expect((calls.last.arguments as Map)['includeSpotlight'], isTrue);
+
+    await tester.tap(checkbox);
+    await tester.pumpAndSettle();
+    expect(tester.widget<CheckboxListTile>(checkbox).value, isFalse);
+    expect(calls.map((call) => (call.arguments as Map)['includeSpotlight']), [
+      false,
+      true,
+      false,
+    ]);
+  });
+
+  testWidgets('adds and removes folders and refreshes the app list', (
+    tester,
+  ) async {
+    const path = '/Volumes/Work/Apps';
+    await tester.pumpWidget(const MaterialApp(home: MacosPluginExample()));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Search folders'));
+    await tester.pumpAndSettle();
+    expect(find.text('No extra search folders.'), findsOneWidget);
+
+    await tester.tap(find.text('Add folder'));
+    await tester.pumpAndSettle();
+    expect(calls.last.method, 'addAppSearchFolder');
+    expect(calls.where((call) => call.method == 'listApps'), hasLength(1));
+
+    pickedFolder = {'id': 'work', 'path': path};
+    await tester.tap(find.text('Add folder'));
+    await tester.pumpAndSettle();
+    expect(find.text(path), findsOneWidget);
+    expect(calls.where((call) => call.method == 'listApps'), hasLength(2));
+
+    await tester.tap(find.byTooltip('Remove search folder'));
+    await tester.pumpAndSettle();
+    expect(find.text('No extra search folders.'), findsOneWidget);
+    expect(calls.where((call) => call.method == 'listApps'), hasLength(3));
+    final removal = calls.singleWhere(
+      (call) => call.method == 'removeAppSearchFolder',
+    );
+    expect(removal.arguments, {'id': 'work'});
+  });
+
+  testWidgets('checks the selected app status in the lookup dialog', (
+    tester,
+  ) async {
+    await tester.pumpWidget(const MaterialApp(home: MacosPluginExample()));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Get app'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('get-app-target')),
+      'com.example.editor',
+    );
+
+    for (final (button, status) in [
+      ('Installed?', 'Installed: Yes'),
+      ('System?', 'System app: Unavailable'),
+      ('Launchable?', 'Launchable: No'),
+    ]) {
+      await tester.tap(find.text(button));
+      await tester.pumpAndSettle();
+      expect(find.text(status), findsOneWidget);
+    }
+
+    expect(calls.map((call) => call.method), [
+      'listApps',
+      'isAppInstalled',
+      'isSystemApp',
+      'isAppLaunchable',
+    ]);
+    for (final call in calls.skip(1)) {
+      expect(call.arguments, {
+        'bundleIdentifier': 'com.example.editor',
+        'appPath': null,
+      });
+    }
+  });
+
+  testWidgets(
+    'opens, reveals, and confirms the resolved path before trashing',
+    (tester) async {
+      const path = '/Applications/Lookup Editor.app';
+      await tester.pumpWidget(const MaterialApp(home: MacosPluginExample()));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Get app'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('get-app-target')),
+        'com.example.lookup',
+      );
+      for (final (button, message, method) in [
+        ('Open app', 'macOS reported launch success.', 'openApp'),
+        ('Show in Finder', 'Finder request sent.', 'revealAppInFinder'),
+      ]) {
+        await tester.tap(find.text(button));
+        await tester.pumpAndSettle();
+        expect(find.text(message), findsOneWidget);
+        expect(calls.last.method, method);
+        expect(calls.last.arguments, {
+          'bundleIdentifier': 'com.example.lookup',
+          'appPath': null,
+        });
+      }
+
+      await tester.tap(find.text('Lookup'));
+      await tester.pumpAndSettle();
+      final trashButton = find.text('Move to Trash…');
+      await tester.ensureVisible(trashButton);
+      await tester.tap(trashButton);
+      await tester.pumpAndSettle();
+      expect(find.text(path), findsOneWidget);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(calls.last.method, 'getApp');
+
+      await tester.ensureVisible(trashButton);
+      await tester.tap(trashButton);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Move to Trash'));
+      await tester.pumpAndSettle();
+      final trashCall = calls.singleWhere(
+        (call) => call.method == 'moveAppToTrash',
+      );
+      expect(trashCall.arguments, {'bundleIdentifier': null, 'appPath': path});
+      expect(find.text('App moved to Trash.'), findsOneWidget);
+      expect(calls.last.method, 'listApps');
+    },
+  );
+
+  testWidgets('shows framework and install source indicators', (tester) async {
+    await tester.pumpWidget(const MaterialApp(home: MacosPluginExample()));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Get app'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('get-app-target')),
+      'com.example.editor',
+    );
+
+    await tester.tap(find.text('Frameworks'));
+    await tester.pumpAndSettle();
+    expect(calls.last.method, 'detectAppFrameworks');
+    expect(find.text('Packaged frameworks: Flutter, Qt'), findsOneWidget);
+
+    await tester.tap(find.text('Install source'));
+    await tester.pumpAndSettle();
+    expect(calls.last.method, 'getInstallSourceInfo');
+    expect(
+      find.text('Install source: Web download\nQuarantine agent: Safari'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('shows declared usage descriptions and entitlements', (
+    tester,
+  ) async {
+    await tester.pumpWidget(const MaterialApp(home: MacosPluginExample()));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Get app'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('get-app-target')),
+      'com.example.camera',
+    );
+
+    await tester.tap(find.text('Capabilities'));
+    await tester.pumpAndSettle();
+    expect(calls.last.method, 'getDeclaredCapabilities');
+    expect(calls.last.arguments, {
+      'bundleIdentifier': 'com.example.camera',
+      'appPath': null,
+    });
+    expect(
+      find.textContaining('NSCameraUsageDescription: Capture a photo'),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining('com.apple.security.device.camera: true'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('loads an icon through the icon API', (tester) async {
+    iconResponse = base64Decode(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j2ioAAAAASUVORK5CYII=',
+    );
+    await tester.pumpWidget(const MaterialApp(home: MacosPluginExample()));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Get app'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('get-app-target')),
+      'com.example.editor',
+    );
+    await tester.tap(find.text('Load icon'));
+    await tester.pumpAndSettle();
+
+    expect(calls.map((call) => call.method), ['listApps', 'getAppIcon']);
+    expect(calls.last.arguments, {
+      'bundleIdentifier': 'com.example.editor',
+      'appPath': null,
+    });
+    expect(find.byType(Image), findsOneWidget);
+  });
+
+  testWidgets('looks up a batch of bundle IDs and paths', (tester) async {
+    await tester.pumpWidget(const MaterialApp(home: MacosPluginExample()));
+    await tester.pumpAndSettle();
+    response = [
+      {'appName': 'Batch Editor', 'appPath': '/Applications/Editor Copy.app'},
+    ];
+
+    await tester.tap(find.byTooltip('Get apps'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('get-apps-targets')),
+      'com.example.editor\n\n/Applications/Editor Copy.app',
+    );
+    await tester.tap(find.text('Look up apps'));
+    await tester.pumpAndSettle();
+
+    final lookup = calls.where((call) => call.method == 'getApps').single;
+    expect((lookup.arguments as Map)['targets'], [
+      'com.example.editor',
+      '/Applications/Editor Copy.app',
+    ]);
+    expect(find.text('Batch Editor'), findsOneWidget);
+    expect(find.text('/Applications/Editor Copy.app'), findsOneWidget);
   });
 
   testWidgets('loads and displays app metadata', (tester) async {
