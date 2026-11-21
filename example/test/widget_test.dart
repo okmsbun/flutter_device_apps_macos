@@ -103,6 +103,30 @@ void main() {
         .setMockMethodCallHandler(channel, null);
   });
 
+  testWidgets('opts into Spotlight and can turn it off again', (tester) async {
+    await tester.pumpWidget(const MaterialApp(home: MacosPluginExample()));
+    await tester.pumpAndSettle();
+    final checkbox = find.widgetWithText(
+      CheckboxListTile,
+      'Include Spotlight results',
+    );
+    expect(tester.widget<CheckboxListTile>(checkbox).value, isFalse);
+
+    await tester.tap(checkbox);
+    await tester.pumpAndSettle();
+    expect(tester.widget<CheckboxListTile>(checkbox).value, isTrue);
+    expect((calls.last.arguments as Map)['includeSpotlight'], isTrue);
+
+    await tester.tap(checkbox);
+    await tester.pumpAndSettle();
+    expect(tester.widget<CheckboxListTile>(checkbox).value, isFalse);
+    expect(calls.map((call) => (call.arguments as Map)['includeSpotlight']), [
+      false,
+      true,
+      false,
+    ]);
+  });
+
   testWidgets('adds and removes folders and refreshes the app list', (
     tester,
   ) async {

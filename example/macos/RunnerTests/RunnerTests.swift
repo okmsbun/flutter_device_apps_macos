@@ -945,6 +945,56 @@ class RunnerTests: XCTestCase {
     waitForExpectations(timeout: 10)
   }
 
+  func testSpotlightOptInMergesValidCandidatesUsingTheListFilters() throws {
+    let id = "com.example.editor"
+    let scanned = try app("Scanned.app", bundleIdentifier: id)
+    let extra = root.appendingPathComponent("OutsideSearchRoots")
+    let indexed = try app("Indexed.app", in: extra, bundleIdentifier: id)
+    let system = try app("System.app", in: systemApps, bundleIdentifier: id)
+    let agent = try app("Agent.app", in: extra, bundleIdentifier: id, extra: ["LSUIElement": true])
+    let mismatched = try app("Mismatched.app", in: extra, bundleIdentifier: "com.example.other")
+    let nested = try app("Parent.app/Contents/Helpers/Nested.app", in: extra, bundleIdentifier: id)
+    let hidden = try app(".Hidden.app", in: extra, bundleIdentifier: id)
+    let missing = extra.appendingPathComponent("Missing.app")
+    let alias = extra.appendingPathComponent("IndexedAlias.app")
+    try fm.createSymbolicLink(at: alias, withDestinationURL: indexed)
+    var searches = 0
+    let plugin = FlutterDeviceAppsMacosPlugin(
+      scanner: MacosAppScanner(searchDirectories: directories),
+      searchSpotlight: { finish in
+        searches += 1
+        finish([scanned, alias, indexed, system, agent, mismatched, nested, hidden, missing])
+      }
+    )
+    for (includeSpotlight, names) in [
+      (false, ["Scanned"]),
+      (true, ["Indexed", "Scanned"]),
+    ] {
+      let completed = expectation(description: "listApps with Spotlight \(includeSpotlight)")
+      plugin.handle(FlutterMethodCall(methodName: "listApps", arguments: [
+        "includeSpotlight": includeSpotlight, "bundleIdentifierPrefix": id,
+      ])) { result in
+        XCTAssertTrue(Thread.isMainThread)
+        let apps = result as? [[String: Any]]
+        XCTAssertEqual(apps?.compactMap { $0["appName"] as? String }, names)
+        completed.fulfill()
+      }
+    }
+    waitForExpectations(timeout: 10)
+    XCTAssertEqual(searches, 1)
+  }
+
+  func testSpotlightSearchCompletesInTheHostSandbox() {
+    let completed = expectation(description: "Spotlight query")
+    completed.assertForOverFulfill = true
+    SpotlightAppSearch.search { urls in
+      XCTAssertTrue(Thread.isMainThread)
+      XCTAssertTrue(urls.allSatisfy(\.isFileURL))
+      completed.fulfill()
+    }
+    waitForExpectations(timeout: 5)
+  }
+
   func testSearchFolderBookmarksPersistAndFeedTheNormalListAppsChannel() throws {
     let suite = "flutter-device-apps-search-folders-\(UUID().uuidString)"
     let prefs = try XCTUnwrap(UserDefaults(suiteName: suite))

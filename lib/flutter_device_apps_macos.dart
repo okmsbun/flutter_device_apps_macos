@@ -66,15 +66,17 @@ abstract final class FlutterDeviceAppsMacos {
     return {'bundleIdentifier': bundleIdentifier, 'appPath': appPath};
   }
 
-  /// Lists accessible app bundles in standard macOS application directories.
+  /// Lists accessible app bundles in macOS application directories.
   ///
   /// Scans `/Applications`, `~/Applications`, `/System/Applications`, and
   /// `/System/Library/CoreServices`, including their non-package subdirectories.
   /// Also scans accessible folders registered by [addAppSearchFolder].
-  /// Discovery skips app bundle contents and locations outside these roots.
+  /// Discovery skips app bundle contents.
   /// App Sandbox and filesystem permissions can limit the results.
   ///
   /// [includeSystem] includes apps in system locations (default: false).
+  /// [includeSpotlight] also checks accessible app bundles found in the Spotlight
+  /// index for local volumes (default: false). Coverage depends on indexing and access.
   /// [onlyLaunchable] requires an executable and excludes background-only and
   /// agent apps (default: true). This is a preflight, not a launch guarantee.
   /// [includeIcons] loads 64×64 PNG icons after filtering (default: false).
@@ -93,9 +95,10 @@ abstract final class FlutterDeviceAppsMacos {
   /// the same bundle identifier remain separate; symlink aliases are deduplicated.
   /// Results are sorted by app name and then path. Unreadable bundles and
   /// subdirectories are skipped. Throws a [PlatformException] with `ERR_LIST`
-  /// if all existing search directories are inaccessible.
+  /// if all existing search directories are inaccessible and no apps are found.
   static Future<List<MacosAppInfo>> listApps({
     bool includeSystem = false,
+    bool includeSpotlight = false,
     bool onlyLaunchable = true,
     bool includeIcons = false,
     bool includeArchitectures = false,
@@ -107,6 +110,7 @@ abstract final class FlutterDeviceAppsMacos {
     final List<dynamic>? raw = await _mch
         .invokeListMethod<dynamic>('listApps', {
           'includeSystem': includeSystem,
+          'includeSpotlight': includeSpotlight,
           'onlyLaunchable': onlyLaunchable,
           'includeIcons': includeIcons,
           'includeArchitectures': includeArchitectures,

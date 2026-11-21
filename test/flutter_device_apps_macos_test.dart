@@ -34,6 +34,7 @@ void main() {
       expect(calls.single.method, 'listApps');
       expect(calls.single.arguments, {
         'includeSystem': false,
+        'includeSpotlight': false,
         'onlyLaunchable': true,
         'includeIcons': false,
         'includeArchitectures': false,
@@ -49,6 +50,7 @@ void main() {
       () async {
         await FlutterDeviceAppsMacos.listApps(
           includeSystem: true,
+          includeSpotlight: true,
           onlyLaunchable: false,
           includeIcons: true,
           includeArchitectures: true,
@@ -59,6 +61,7 @@ void main() {
         );
         expect(calls.single.arguments, {
           'includeSystem': true,
+          'includeSpotlight': true,
           'onlyLaunchable': false,
           'includeIcons': true,
           'includeArchitectures': true,

@@ -16,6 +16,7 @@ private enum AppActionError: LocalizedError {
 public class FlutterDeviceAppsMacosPlugin: NSObject, FlutterPlugin {
   private let scanner: MacosAppScanner
   private let searchFolders: AppSearchFolders
+  private let searchSpotlight: (@escaping ([URL]) -> Void) -> Void
   private let worker = DispatchQueue(label: "flutter_device_apps_macos/scan", qos: .userInitiated)
   private let openApplication: (URL, @escaping (Error?) -> Void) -> Void
   private let revealApplication: (URL) -> Void
@@ -28,6 +29,7 @@ public class FlutterDeviceAppsMacosPlugin: NSObject, FlutterPlugin {
   init(
     scanner: MacosAppScanner,
     searchFolders: AppSearchFolders = AppSearchFolders(),
+    searchSpotlight: @escaping (@escaping ([URL]) -> Void) -> Void = SpotlightAppSearch.search,
     openApplication: @escaping (URL, @escaping (Error?) -> Void) -> Void = { url, finish in
       NSWorkspace.shared.openApplication(at: url, configuration: .init()) { app, error in
         finish(error ?? (app == nil ? AppActionError.launchFailed : nil))
@@ -40,6 +42,7 @@ public class FlutterDeviceAppsMacosPlugin: NSObject, FlutterPlugin {
   ) {
     self.scanner = scanner
     self.searchFolders = searchFolders
+    self.searchSpotlight = searchSpotlight
     self.openApplication = openApplication
     self.revealApplication = revealApplication
     self.trashApplication = trashApplication
@@ -60,8 +63,17 @@ public class FlutterDeviceAppsMacosPlugin: NSObject, FlutterPlugin {
       switch call.method {
       case "listApps":
         let options = try AppListOptions(arguments: call.arguments)
-        performQuery(errorCode: "ERR_LIST", result: result) { roots in
-          try self.scanner.listApps(options: options, additionalRoots: roots).map(Self.encodeApp)
+        let scan: ([URL]) -> Void = { candidates in
+          self.performQuery(errorCode: "ERR_LIST", result: result) { roots in
+            try self.scanner.listApps(
+              options: options, additionalRoots: roots, spotlightCandidates: candidates
+            ).map(Self.encodeApp)
+          }
+        }
+        if options.includeSpotlight {
+          searchSpotlight(scan)
+        } else {
+          scan([])
         }
       case "addAppSearchFolder":
         addAppSearchFolder(result: result)

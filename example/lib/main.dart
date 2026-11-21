@@ -21,6 +21,7 @@ class _MacosPluginExampleState extends State<MacosPluginExample> {
   final _prefix = TextEditingController();
   final _contains = TextEditingController();
   bool _includeSystem = false;
+  bool _includeSpotlight = false;
   bool _onlyLaunchable = true;
   bool _includeIcons = false;
   bool _includeArchitectures = false;
@@ -36,6 +37,7 @@ class _MacosPluginExampleState extends State<MacosPluginExample> {
 
   Future<List<MacosAppInfo>> _loadApps() => FlutterDeviceAppsMacos.listApps(
     includeSystem: _includeSystem,
+    includeSpotlight: _includeSpotlight,
     onlyLaunchable: _onlyLaunchable,
     includeIcons: _includeIcons,
     includeArchitectures: _includeArchitectures,
@@ -192,11 +194,16 @@ class _MacosPluginExampleState extends State<MacosPluginExample> {
               ],
             ),
           ),
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16),
-            child: Text(
-              'Standard application directories only. Access restrictions may limit results.',
-            ),
+          CheckboxListTile(
+            dense: true,
+            title: const Text('Include Spotlight results'),
+            subtitle: const Text('Results depend on indexing and file access.'),
+            controlAffinity: ListTileControlAffinity.leading,
+            value: _includeSpotlight,
+            onChanged: (value) {
+              _includeSpotlight = value ?? false;
+              _reload();
+            },
           ),
           Expanded(
             child: FutureBuilder<List<MacosAppInfo>>(
