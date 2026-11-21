@@ -17,6 +17,7 @@ Use bundle identifiers, app paths, and macOS metadata throughout the API.
 - [x] Example with filters, icons, refresh, empty results, and errors.
 - [x] Dart, widget, and native fixture tests; sandbox discovery smoke check.
 - [x] GitHub Actions for quality checks, Dart/widget tests, and native macOS tests.
+- [x] Release builds verified with Swift Package Manager and CocoaPods fallback.
 
 ## Next APIs
 
@@ -43,6 +44,5 @@ Use bundle identifiers, app paths, and macOS metadata throughout the API.
 
 - [ ] Assess additional discovery roots and user-granted access with security-scoped bookmarks.
 - [ ] Assess Spotlight supplementation without promising complete discovery.
-- [ ] Verify release builds and CocoaPods integration before publishing.
 
 See [API capabilities](doc/api-capabilities.md) for discovery behavior and limitations.
