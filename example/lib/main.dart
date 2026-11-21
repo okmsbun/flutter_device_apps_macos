@@ -1,7 +1,11 @@
-import 'package:flutter/material.dart';
 import 'package:flutter_device_apps_macos/flutter_device_apps_macos.dart';
+import 'package:material_ui/material_ui.dart';
 
+import 'app_search_folders_dialog.dart';
+import 'default_app_for_file_dialog.dart';
 import 'get_app_dialog.dart';
+import 'get_apps_dialog.dart';
+import 'running_apps_dialog.dart';
 
 void main() {
   runApp(const MaterialApp(home: MacosPluginExample()));
@@ -19,6 +23,7 @@ class _MacosPluginExampleState extends State<MacosPluginExample> {
   final _prefix = TextEditingController();
   final _contains = TextEditingController();
   bool _includeSystem = false;
+  bool _includeSpotlight = false;
   bool _onlyLaunchable = true;
   bool _includeIcons = false;
   bool _includeArchitectures = false;
@@ -34,6 +39,7 @@ class _MacosPluginExampleState extends State<MacosPluginExample> {
 
   Future<List<MacosAppInfo>> _loadApps() => FlutterDeviceAppsMacos.listApps(
     includeSystem: _includeSystem,
+    includeSpotlight: _includeSpotlight,
     onlyLaunchable: _onlyLaunchable,
     includeIcons: _includeIcons,
     includeArchitectures: _includeArchitectures,
@@ -44,6 +50,7 @@ class _MacosPluginExampleState extends State<MacosPluginExample> {
   );
 
   void _reload() {
+    if (!mounted) return;
     final apps = _loadApps();
     setState(() {
       _apps = apps;
@@ -53,7 +60,7 @@ class _MacosPluginExampleState extends State<MacosPluginExample> {
   Future<void> _openAppLookup({String? appPath}) async {
     await showDialog<void>(
       context: context,
-      builder: (_) => GetAppDialog(appPath: appPath),
+      builder: (_) => GetAppDialog(appPath: appPath, onAppTrashed: _reload),
     );
   }
 
@@ -71,9 +78,41 @@ class _MacosPluginExampleState extends State<MacosPluginExample> {
         title: const Text('flutter_device_apps_macos'),
         actions: [
           IconButton(
+            onPressed: () => showDialog<void>(
+              context: context,
+              builder: (_) => const RunningAppsDialog(),
+            ),
+            tooltip: 'Running apps',
+            icon: const Icon(Icons.memory),
+          ),
+          IconButton(
+            onPressed: () => showDialog<void>(
+              context: context,
+              builder: (_) => const DefaultAppForFileDialog(),
+            ),
+            tooltip: 'Open with',
+            icon: const Icon(Icons.insert_drive_file_outlined),
+          ),
+          IconButton(
             onPressed: _openAppLookup,
             tooltip: 'Get app',
             icon: const Icon(Icons.manage_search),
+          ),
+          IconButton(
+            onPressed: () => showDialog<void>(
+              context: context,
+              builder: (_) => const GetAppsDialog(),
+            ),
+            tooltip: 'Get apps',
+            icon: const Icon(Icons.list_alt),
+          ),
+          IconButton(
+            onPressed: () => showDialog<void>(
+              context: context,
+              builder: (_) => AppSearchFoldersDialog(onChanged: _reload),
+            ),
+            tooltip: 'Search folders',
+            icon: const Icon(Icons.create_new_folder_outlined),
           ),
           IconButton(
             onPressed: _reload,
@@ -173,11 +212,16 @@ class _MacosPluginExampleState extends State<MacosPluginExample> {
               ],
             ),
           ),
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16),
-            child: Text(
-              'Standard application directories only. Access restrictions may limit results.',
-            ),
+          CheckboxListTile(
+            dense: true,
+            title: const Text('Include Spotlight results'),
+            subtitle: const Text('Results depend on indexing and file access.'),
+            controlAffinity: ListTileControlAffinity.leading,
+            value: _includeSpotlight,
+            onChanged: (value) {
+              _includeSpotlight = value ?? false;
+              _reload();
+            },
           ),
           Expanded(
             child: FutureBuilder<List<MacosAppInfo>>(

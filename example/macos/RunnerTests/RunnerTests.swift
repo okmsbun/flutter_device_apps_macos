@@ -1,4 +1,5 @@
 import AppKit
+import CoreServices
 import FlutterMacOS
 import MachO
 import XCTest
@@ -591,6 +592,575 @@ class RunnerTests: XCTestCase {
       error.fulfill()
     }
     waitForExpectations(timeout: 10)
+  }
+
+  func testAppStatusChecksUseSingleLookupAndLaunchPreflight() throws {
+    let system = try app("System.app", in: systemApps, bundleIdentifier: "com.example.system")
+    let regular = try app("Regular.app")
+    let agent = try app("Agent.app", extra: ["LSUIElement": true])
+    let background = try app("Background.app", extra: ["LSBackgroundOnly": true])
+    let disabled = try app("Disabled.app")
+    try fm.setAttributes(
+      [.posixPermissions: 0o644],
+      ofItemAtPath: disabled.appendingPathComponent("Contents/MacOS/Executable").path
+    )
+    let missing = root.appendingPathComponent("Missing.app").path
+    let restricted = DirectoryReadDenyingFileManager(denied: [userApps, systemApps])
+    let scanner = MacosAppScanner(
+      searchDirectories: directories, fileManager: restricted,
+      applicationResolver: { $0 == "com.example.system" ? system : nil }
+    )
+    let plugin = FlutterDeviceAppsMacosPlugin(scanner: scanner)
+    let checks: [(method: String, arguments: [String: String], expected: Bool?)] = [
+      ("isAppInstalled", ["bundleIdentifier": "com.example.system"], true),
+      ("isAppInstalled", ["appPath": agent.path], true),
+      ("isAppInstalled", ["appPath": missing], false),
+      ("isSystemApp", ["appPath": system.path], true),
+      ("isSystemApp", ["appPath": regular.path], false),
+      ("isSystemApp", ["appPath": missing], nil),
+      ("isAppLaunchable", ["appPath": regular.path], true),
+      ("isAppLaunchable", ["appPath": agent.path], false),
+      ("isAppLaunchable", ["appPath": background.path], false),
+      ("isAppLaunchable", ["appPath": disabled.path], false),
+      ("isAppLaunchable", ["appPath": missing], false),
+    ]
+    for check in checks {
+      let completed = expectation(description: check.method)
+      plugin.handle(FlutterMethodCall(methodName: check.method, arguments: check.arguments)) { result in
+        XCTAssertTrue(Thread.isMainThread)
+        if check.expected == nil {
+          XCTAssertNil(result)
+        } else {
+          XCTAssertEqual(result as? Bool, check.expected, "\(check.method) \(check.arguments)")
+        }
+        completed.fulfill()
+      }
+    }
+    waitForExpectations(timeout: 10)
+    XCTAssertEqual(restricted.directoryReadCount, 0)
+  }
+
+  func testDeclaredCapabilitiesPreserveUsageDescriptionsWithoutASignature() throws {
+    let camera = try app("Camera.app", bundleIdentifier: "com.example.camera", extra: [
+      "NSCameraUsageDescription": "Capture a photo",
+      "NSMicrophoneUsageDescription": 42,
+      "CFBundleDisplayName": "Camera",
+    ])
+    let restricted = DirectoryReadDenyingFileManager(denied: [userApps, systemApps])
+    let scanner = MacosAppScanner(
+      searchDirectories: directories, fileManager: restricted,
+      applicationResolver: { $0 == "com.example.camera" ? camera : nil }
+    )
+    let plugin = FlutterDeviceAppsMacosPlugin(scanner: scanner)
+    let read = expectation(description: "declared capabilities")
+    let call = FlutterMethodCall(
+      methodName: "getDeclaredCapabilities", arguments: ["bundleIdentifier": "com.example.camera"]
+    )
+    plugin.handle(call) { response in
+      XCTAssertTrue(Thread.isMainThread)
+      let result = response as? [String: Any]
+      XCTAssertEqual(result?["usageDescriptions"] as? [String: String], [
+        "NSCameraUsageDescription": "Capture a photo",
+      ])
+      XCTAssertNil(result?["entitlements"])
+      read.fulfill()
+    }
+    waitForExpectations(timeout: 10)
+    XCTAssertEqual(restricted.directoryReadCount, 0)
+    XCTAssertNil(try scanner.getDeclaredCapabilities(target: .bundleIdentifier("com.example.missing")))
+  }
+
+  func testDeclaredCapabilitiesReadTheHostsEmbeddedEntitlements() throws {
+    let target = AppLookupTarget.appPath(Bundle.main.bundleURL.path)
+    let result = try XCTUnwrap(MacosAppScanner().getDeclaredCapabilities(target: target))
+    let entitlements = try XCTUnwrap(result["entitlements"] as? [String: Any])
+    XCTAssertEqual(entitlements["com.apple.security.app-sandbox"] as? Bool, true)
+  }
+
+  func testAppInspectionReadsOnlySupportedMarkersInTheResolvedBundle() throws {
+    let preferred = try app("Preferred.app")
+    let copy = try app("Copy.app")
+    let plain = try app("Plain.app")
+    let missing = userApps.appendingPathComponent("Missing.app")
+    let flutterRoot = preferred.appendingPathComponent("Contents/Frameworks/FlutterMacOS.framework")
+    for file in [
+      flutterRoot.appendingPathComponent("Versions/A/FlutterMacOS"),
+      preferred.appendingPathComponent("Contents/Frameworks/QtCore.framework/QtCore"),
+      preferred.appendingPathComponent("Contents/Frameworks/UnityPlayer.dylib"),
+      preferred.appendingPathComponent("Contents/runtime/Contents/Home/lib/server/libjvm.dylib"),
+      preferred.appendingPathComponent("Contents/_MASReceipt/receipt"),
+      copy.appendingPathComponent("Contents/Frameworks/Electron Framework.framework/Electron Framework"),
+      copy.appendingPathComponent("Contents/jbr/Contents/Home/lib/server/libjvm.dylib"),
+      plain.appendingPathComponent("Contents/PlugIns/Helper.app/Contents/Frameworks/QtCore.framework/QtCore"),
+      plain.appendingPathComponent("Contents/Frameworks/libjvm.dylib"),
+    ] {
+      try fm.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+      try Data("fixture".utf8).write(to: file)
+    }
+    try fm.createSymbolicLink(
+      at: flutterRoot.appendingPathComponent("FlutterMacOS"),
+      withDestinationURL: flutterRoot.appendingPathComponent("Versions/A/FlutterMacOS")
+    )
+    try fm.createSymbolicLink(
+      at: copy.appendingPathComponent("Contents/Frameworks/FlutterMacOS.framework"),
+      withDestinationURL: flutterRoot
+    )
+
+    let restricted = DirectoryReadDenyingFileManager(denied: [userApps, systemApps])
+    let scanner = MacosAppScanner(
+      searchDirectories: directories, fileManager: restricted,
+      applicationResolver: { _ in preferred }
+    )
+    let plugin = FlutterDeviceAppsMacosPlugin(scanner: scanner)
+    let frameworkChecks: [([String: String], [String]?)] = [
+      (["bundleIdentifier": "com.example.app"], ["flutter", "qt", "unity", "javaRuntime"]),
+      (["appPath": copy.path], ["electron", "javaRuntime"]),
+      (["appPath": plain.path], []),
+      (["appPath": missing.path], nil),
+    ]
+    for (arguments, expected) in frameworkChecks {
+      let finished = expectation(description: "framework inspection")
+      plugin.handle(FlutterMethodCall(methodName: "detectAppFrameworks", arguments: arguments)) { result in
+        XCTAssertTrue(Thread.isMainThread)
+        if let expected = expected {
+          XCTAssertEqual(result as? [String], expected)
+        } else {
+          XCTAssertNil(result)
+        }
+        finished.fulfill()
+      }
+    }
+    let sourceChecks: [(URL, String?)] = [
+      (preferred, "macAppStore"), (copy, "unknown"), (missing, nil),
+    ]
+    for (app, expected) in sourceChecks {
+      let finished = expectation(description: "install source inspection")
+      plugin.handle(FlutterMethodCall(methodName: "getInstallSourceInfo", arguments: ["appPath": app.path])) { result in
+        XCTAssertTrue(Thread.isMainThread)
+        if let expected = expected {
+          let info = result as? [String: Any]
+          XCTAssertEqual(info?["source"] as? String, expected)
+          XCTAssertEqual(info?["hasAppStoreReceipt"] as? Bool, expected == "macAppStore")
+        } else {
+          XCTAssertNil(result)
+        }
+        finished.fulfill()
+      }
+    }
+    waitForExpectations(timeout: 10)
+    XCTAssertEqual(restricted.directoryReadCount, 0)
+  }
+
+  func testInstallSourceUsesQuarantineTypeAndPrefersAReceiptMarker() {
+    let web: [String: Any] = [
+      kLSQuarantineTypeKey as String: kLSQuarantineTypeWebDownload as String,
+      kLSQuarantineAgentNameKey as String: "Safari",
+      kLSQuarantineAgentBundleIdentifierKey as String: "com.apple.Safari",
+    ]
+    let download = MacosAppScanner.installSourceInfo(hasAppStoreReceipt: false, quarantine: web)
+    XCTAssertEqual(download["source"] as? String, "webDownload")
+    XCTAssertEqual(download["quarantineAgentName"] as? String, "Safari")
+    XCTAssertEqual(download["quarantineAgentBundleIdentifier"] as? String, "com.apple.Safari")
+    let store = MacosAppScanner.installSourceInfo(hasAppStoreReceipt: true, quarantine: web)
+    XCTAssertEqual(store["source"] as? String, "macAppStore")
+    let unspecified = MacosAppScanner.installSourceInfo(
+      hasAppStoreReceipt: false,
+      quarantine: [kLSQuarantineTypeKey as String: kLSQuarantineTypeOtherDownload as String]
+    )
+    XCTAssertEqual(unspecified["source"] as? String, "unknown")
+  }
+
+  func testAppActionsUseResolvedPathsAndWaitForLaunchCompletion() throws {
+    let preferred = try app("Preferred.app", extra: ["LSBackgroundOnly": true], executable: false)
+    let copy = try app("Copy.app").resolvingSymlinksInPath().standardizedFileURL
+    let trashed = root.appendingPathComponent("Moved.app")
+    let restricted = DirectoryReadDenyingFileManager(denied: [userApps, systemApps])
+    let scanner = MacosAppScanner(
+      searchDirectories: directories, fileManager: restricted,
+      applicationResolver: { _ in preferred }
+    )
+    var launchFinished = false
+    let plugin = FlutterDeviceAppsMacosPlugin(
+      scanner: scanner,
+      openApplication: { url, finish in
+        XCTAssertEqual(url.path, preferred.resolvingSymlinksInPath().path)
+        DispatchQueue.main.async {
+          launchFinished = true
+          finish(nil)
+        }
+      },
+      revealApplication: { XCTAssertEqual($0.path, copy.path) },
+      trashApplication: { [fm] url in
+        XCTAssertEqual(url.path, copy.path)
+        try fm.moveItem(at: url, to: trashed)
+      }
+    )
+    for (method, arguments) in [
+      ("openApp", ["bundleIdentifier": "com.example.app"]),
+      ("revealAppInFinder", ["appPath": copy.path]),
+      ("moveAppToTrash", ["appPath": copy.path]),
+    ] {
+      let completed = expectation(description: method)
+      plugin.handle(FlutterMethodCall(methodName: method, arguments: arguments)) { result in
+        XCTAssertTrue(Thread.isMainThread)
+        XCTAssertNil(result)
+        if method == "openApp" { XCTAssertTrue(launchFinished) }
+        completed.fulfill()
+      }
+    }
+    waitForExpectations(timeout: 10)
+    XCTAssertEqual(restricted.directoryReadCount, 0)
+    XCTAssertTrue(fm.fileExists(atPath: preferred.path))
+    XCTAssertFalse(fm.fileExists(atPath: copy.path))
+    XCTAssertTrue(fm.fileExists(atPath: trashed.path))
+  }
+
+  func testAppActionErrorsPreserveNativeFailureAndRejectTrashAliases() throws {
+    let target = try app("Target.app").resolvingSymlinksInPath().standardizedFileURL
+    let alias = userApps.appendingPathComponent("Alias.app")
+    try fm.createSymbolicLink(at: alias, withDestinationURL: target)
+    let missing = userApps.appendingPathComponent("Missing.app").path
+    let denied = NSError(domain: NSCocoaErrorDomain, code: NSFileWriteNoPermissionError)
+    let plugin = FlutterDeviceAppsMacosPlugin(
+      scanner: MacosAppScanner(searchDirectories: directories),
+      openApplication: { _, finish in finish(denied) },
+      revealApplication: { _ in XCTFail("Missing apps should not be revealed") },
+      trashApplication: { url in
+        XCTAssertEqual(url.path, target.path)
+        throw denied
+      }
+    )
+    for (method, arguments, code, nativeCode) in [
+      ("openApp", ["appPath": target.path], "ERR_OPEN", denied.code),
+      ("revealAppInFinder", ["appPath": missing], "APP_UNAVAILABLE", nil),
+      ("moveAppToTrash", ["appPath": alias.path], "ERR_TRASH", nil),
+      ("moveAppToTrash", ["appPath": target.path], "ERR_TRASH", denied.code),
+      ("moveAppToTrash", ["bundleIdentifier": "com.example.app"], "ARG", nil),
+    ] {
+      let completed = expectation(description: method)
+      plugin.handle(FlutterMethodCall(methodName: method, arguments: arguments)) { result in
+        XCTAssertTrue(Thread.isMainThread)
+        let error = result as? FlutterError
+        XCTAssertEqual(error?.code, code)
+        if let nativeCode = nativeCode {
+          let details = error?.details as? [String: Any]
+          XCTAssertEqual(details?["domain"] as? String, denied.domain)
+          XCTAssertEqual(details?["code"] as? Int, nativeCode)
+        }
+        completed.fulfill()
+      }
+    }
+    waitForExpectations(timeout: 10)
+    XCTAssertTrue(fm.fileExists(atPath: target.path))
+  }
+
+  func testIconLookupReturnsPNGWithoutEnumeratingDirectories() throws {
+    let url = try app("Editor.app")
+    let restricted = DirectoryReadDenyingFileManager(denied: [userApps, systemApps])
+    let scanner = MacosAppScanner(
+      searchDirectories: directories, fileManager: restricted,
+      applicationResolver: { identifier in
+        XCTAssertEqual(identifier, "com.example.app")
+        XCTAssertFalse(Thread.isMainThread)
+        return url
+      }
+    )
+    let plugin = FlutterDeviceAppsMacosPlugin(scanner: scanner)
+    let completed = expectation(description: "Standalone PNG icon")
+    plugin.handle(FlutterMethodCall(methodName: "getAppIcon", arguments: [
+      "bundleIdentifier": "com.example.app",
+    ])) { result in
+      XCTAssertTrue(Thread.isMainThread)
+      let icon = (result as? FlutterStandardTypedData).flatMap { NSBitmapImageRep(data: $0.data) }
+      XCTAssertEqual(icon?.pixelsWide, 64)
+      XCTAssertEqual(icon?.pixelsHigh, 64)
+      XCTAssertEqual(restricted.directoryReadCount, 0)
+      completed.fulfill()
+    }
+    let missing = expectation(description: "Missing app icon")
+    plugin.handle(FlutterMethodCall(methodName: "getAppIcon", arguments: [
+      "appPath": root.appendingPathComponent("Missing.app").path,
+    ])) {
+      XCTAssertNil($0)
+      missing.fulfill()
+    }
+    waitForExpectations(timeout: 10)
+  }
+
+  func testBatchLookupPreservesOrderAndDeduplicatesResolvedCopies() throws {
+    let first = try app("First.app", bundleIdentifier: "com.example.copy")
+    let preferred = try app("Second.app", bundleIdentifier: "com.example.copy")
+    let alias = root.appendingPathComponent("Alias.app")
+    try fm.createSymbolicLink(at: alias, withDestinationURL: preferred)
+    let expectedPaths = [preferred, first].map { $0.resolvingSymlinksInPath().path }
+    var iconReads: [String] = []
+    let scanner = MacosAppScanner(
+      searchDirectories: directories, iconProvider: { url in
+        iconReads.append(url.path)
+        return Data([137, 80, 78, 71])
+      },
+      applicationResolver: { identifier in
+        XCTAssertFalse(Thread.isMainThread)
+        return identifier == "com.example.copy" ? preferred : nil
+      }
+    )
+    let plugin = FlutterDeviceAppsMacosPlugin(scanner: scanner)
+    let completed = expectation(description: "Ordered batch lookup")
+    plugin.handle(FlutterMethodCall(methodName: "getApps", arguments: [
+      "targets": ["com.example.copy", alias.path, "com.example.missing", first.path, preferred.path],
+      "includeIcons": true,
+    ])) { result in
+      XCTAssertTrue(Thread.isMainThread)
+      let apps = result as? [[String: Any]]
+      XCTAssertEqual(apps?.compactMap { $0["appPath"] as? String }, expectedPaths)
+      XCTAssertEqual(apps?.compactMap { $0["bundleIdentifier"] as? String },
+                     ["com.example.copy", "com.example.copy"])
+      XCTAssertEqual(iconReads, expectedPaths)
+      XCTAssertEqual((apps?.first?["iconBytes"] as? FlutterStandardTypedData)?.data,
+                     Data([137, 80, 78, 71]))
+      completed.fulfill()
+    }
+    waitForExpectations(timeout: 10)
+  }
+
+  func testBatchLookupRejectsInvalidTargetsAndReportsResolutionErrors() {
+    let plugin = FlutterDeviceAppsMacosPlugin(scanner: MacosAppScanner(applicationResolver: { _ in
+      throw NSError(domain: "lookup", code: 1)
+    }))
+    let invalid: [[String: Any]] = [
+      [:], ["targets": [1]], ["targets": [" "]], ["targets": ["Folder/App.app"]],
+      ["targets": ["com.example.\0app"]], ["targets": ["com.example.app"], "includeIcons": 1],
+    ]
+    var replies = 0
+    for arguments in invalid {
+      plugin.handle(FlutterMethodCall(methodName: "getApps", arguments: arguments)) {
+        XCTAssertEqual(($0 as? FlutterError)?.code, "ARG")
+        replies += 1
+      }
+    }
+    XCTAssertEqual(replies, invalid.count)
+    let completed = expectation(description: "Unexpected batch failure")
+    plugin.handle(FlutterMethodCall(methodName: "getApps", arguments: [
+      "targets": ["com.example.app"],
+    ])) {
+      XCTAssertEqual(($0 as? FlutterError)?.code, "ERR_GET_APPS")
+      completed.fulfill()
+    }
+    waitForExpectations(timeout: 10)
+  }
+
+  func testRunningAppsReportsTheHostApplication() {
+    let completed = expectation(description: "running apps snapshot")
+    let plugin = FlutterDeviceAppsMacosPlugin(scanner: MacosAppScanner())
+    plugin.handle(FlutterMethodCall(methodName: "listRunningApps", arguments: nil)) { result in
+      XCTAssertTrue(Thread.isMainThread)
+      let apps = result as? [[String: Any]]
+      let host = apps?.first {
+        $0["processIdentifier"] as? Int == Int(ProcessInfo.processInfo.processIdentifier)
+      }
+      XCTAssertEqual(host?["bundleIdentifier"] as? String, Bundle.main.bundleIdentifier)
+      XCTAssertNotNil(host?["appPath"] as? String)
+      XCTAssertNotNil(host?["isActive"] as? Bool)
+      completed.fulfill()
+    }
+    waitForExpectations(timeout: 10)
+  }
+
+  func testDefaultAppForFileUsesTheResolvedAppCopyWithoutScanning() throws {
+    let document = root.appendingPathComponent("My Document.pdf")
+    try Data().write(to: document)
+    try app("Other Reader.app", bundleIdentifier: "com.example.reader")
+    let handler = try app("PDF Reader.app", in: root, bundleIdentifier: "com.example.reader")
+    let restricted = DirectoryReadDenyingFileManager(denied: [userApps, systemApps])
+    let plugin = FlutterDeviceAppsMacosPlugin(
+      scanner: MacosAppScanner(searchDirectories: directories, fileManager: restricted),
+      defaultAppForFile: { $0.path == document.path ? handler : nil }
+    )
+    for (path, expected) in [
+      (document.path, handler.resolvingSymlinksInPath().standardizedFileURL.path),
+      (root.appendingPathComponent("Missing.pdf").path, nil),
+    ] {
+      let completed = expectation(description: "default app for file")
+      plugin.handle(FlutterMethodCall(
+        methodName: "getDefaultAppForFile", arguments: ["filePath": path]
+      )) { result in
+        XCTAssertTrue(Thread.isMainThread)
+        if let expected = expected {
+          let app = result as? [String: Any]
+          XCTAssertEqual(app?["appPath"] as? String, expected)
+          XCTAssertEqual(app?["bundleIdentifier"] as? String, "com.example.reader")
+        } else {
+          XCTAssertNil(result)
+        }
+        completed.fulfill()
+      }
+    }
+    waitForExpectations(timeout: 10)
+    XCTAssertEqual(restricted.directoryReadCount, 0)
+  }
+
+  func testFileHandlersReuseExactLookupAndWaitForNativeOpen() throws {
+    let document = root.appendingPathComponent("My Document.pdf")
+    try Data().write(to: document)
+    let initial = try app("PDF Reader.app", bundleIdentifier: "com.example.reader")
+    let copy = try app("PDF Reader Copy.app", in: root, bundleIdentifier: "com.example.reader")
+    let alias = root.appendingPathComponent("Alias.app")
+    try fm.createSymbolicLink(at: alias, withDestinationURL: copy)
+    let missing = root.appendingPathComponent("Missing.app")
+    let restricted = DirectoryReadDenyingFileManager(denied: [userApps, systemApps])
+    var didOpenFile = false
+    let denied = NSError(domain: NSCocoaErrorDomain, code: NSFileReadNoPermissionError)
+    let plugin = FlutterDeviceAppsMacosPlugin(
+      scanner: MacosAppScanner(searchDirectories: directories, fileManager: restricted),
+      appsForFile: { url in
+        url.path == document.path ? [copy, alias, initial, missing] : []
+      },
+      openFile: { file, app, finish in
+        XCTAssertEqual(app.path, copy.resolvingSymlinksInPath().path)
+        DispatchQueue.main.async {
+          didOpenFile = true
+          finish(file.path == document.path ? nil : denied)
+        }
+      }
+    )
+    let listed = expectation(description: "file handlers")
+    plugin.handle(FlutterMethodCall(
+      methodName: "listAppsForFile", arguments: ["filePath": document.path]
+    )) { result in
+      let apps = result as? [[String: Any]]
+      XCTAssertEqual(apps?.compactMap { $0["appName"] as? String }, ["PDF Reader Copy", "PDF Reader"])
+      listed.fulfill()
+    }
+    let opened = expectation(description: "file opened")
+    plugin.handle(FlutterMethodCall(
+      methodName: "openFileWithApp", arguments: ["filePath": document.path, "appPath": alias.path]
+    )) { result in
+      XCTAssertTrue(Thread.isMainThread)
+      XCTAssertTrue(didOpenFile)
+      XCTAssertNil(result)
+      opened.fulfill()
+    }
+    let failed = expectation(description: "native error returned")
+    plugin.handle(FlutterMethodCall(
+      methodName: "openFileWithApp", arguments: ["filePath": missing.path, "appPath": copy.path]
+    )) { result in
+      let error = result as? FlutterError
+      XCTAssertEqual(error?.code, "ERR_OPEN_FILE")
+      XCTAssertEqual((error?.details as? [String: Any])?["code"] as? Int, denied.code)
+      failed.fulfill()
+    }
+    waitForExpectations(timeout: 10)
+    XCTAssertEqual(restricted.directoryReadCount, 0)
+  }
+
+  func testSpotlightOptInMergesValidCandidatesUsingTheListFilters() throws {
+    let id = "com.example.editor"
+    let scanned = try app("Scanned.app", bundleIdentifier: id)
+    let extra = root.appendingPathComponent("OutsideSearchRoots")
+    let indexed = try app("Indexed.app", in: extra, bundleIdentifier: id)
+    let system = try app("System.app", in: systemApps, bundleIdentifier: id)
+    let agent = try app("Agent.app", in: extra, bundleIdentifier: id, extra: ["LSUIElement": true])
+    let mismatched = try app("Mismatched.app", in: extra, bundleIdentifier: "com.example.other")
+    let nested = try app("Parent.app/Contents/Helpers/Nested.app", in: extra, bundleIdentifier: id)
+    let hidden = try app(".Hidden.app", in: extra, bundleIdentifier: id)
+    let missing = extra.appendingPathComponent("Missing.app")
+    let alias = extra.appendingPathComponent("IndexedAlias.app")
+    try fm.createSymbolicLink(at: alias, withDestinationURL: indexed)
+    var searches = 0
+    let plugin = FlutterDeviceAppsMacosPlugin(
+      scanner: MacosAppScanner(searchDirectories: directories),
+      searchSpotlight: { finish in
+        searches += 1
+        finish([scanned, alias, indexed, system, agent, mismatched, nested, hidden, missing])
+      }
+    )
+    for (includeSpotlight, names) in [
+      (false, ["Scanned"]),
+      (true, ["Indexed", "Scanned"]),
+    ] {
+      let completed = expectation(description: "listApps with Spotlight \(includeSpotlight)")
+      plugin.handle(FlutterMethodCall(methodName: "listApps", arguments: [
+        "includeSpotlight": includeSpotlight, "bundleIdentifierPrefix": id,
+      ])) { result in
+        XCTAssertTrue(Thread.isMainThread)
+        let apps = result as? [[String: Any]]
+        XCTAssertEqual(apps?.compactMap { $0["appName"] as? String }, names)
+        completed.fulfill()
+      }
+    }
+    waitForExpectations(timeout: 10)
+    XCTAssertEqual(searches, 1)
+  }
+
+  func testSpotlightSearchCompletesInTheHostSandbox() {
+    let completed = expectation(description: "Spotlight query")
+    completed.assertForOverFulfill = true
+    SpotlightAppSearch.search { urls in
+      XCTAssertTrue(Thread.isMainThread)
+      XCTAssertTrue(urls.allSatisfy(\.isFileURL))
+      completed.fulfill()
+    }
+    waitForExpectations(timeout: 5)
+  }
+
+  func testSearchFolderBookmarksPersistAndFeedTheNormalListAppsChannel() throws {
+    let suite = "flutter-device-apps-search-folders-\(UUID().uuidString)"
+    let prefs = try XCTUnwrap(UserDefaults(suiteName: suite))
+    defer { prefs.removePersistentDomain(forName: suite) }
+
+    let extra = root.appendingPathComponent("ExtraApps")
+    _ = try app("Extra.app", in: extra, bundleIdentifier: "com.example.discovery.extra")
+    _ = try app("Agent.app", in: extra, extra: ["LSUIElement": true])
+    _ = try app("Default.app", bundleIdentifier: "com.example.discovery.default")
+
+    let initial = AppSearchFolders(defaults: prefs)
+    let entry = try initial.add(extra)
+    XCTAssertEqual(try initial.add(extra), entry)
+    _ = try initial.add(userApps)
+    let id = try XCTUnwrap(entry["id"])
+
+    let restored = AppSearchFolders(defaults: prefs)
+    XCTAssertEqual(restored.list().count, 2)
+    XCTAssertEqual(restored.list().first, entry)
+    do {
+      let access = restored.start()
+      defer { access.stop() }
+      XCTAssertEqual(
+        Set(access.scopedURLs.map { $0.resolvingSymlinksInPath().path }),
+        Set([extra, userApps!].map { $0.resolvingSymlinksInPath().path })
+      )
+    }
+
+    let plugin = FlutterDeviceAppsMacosPlugin(
+      scanner: MacosAppScanner(searchDirectories: directories), searchFolders: restored
+    )
+    let list = FlutterMethodCall(
+      methodName: "listApps", arguments: ["bundleIdentifierPrefix": "com.example.discovery."]
+    )
+    let included = expectation(description: "saved folder included")
+    plugin.handle(list) { result in
+      let apps = result as? [[String: Any]]
+      XCTAssertEqual(apps?.compactMap { $0["appName"] as? String }, ["Default", "Extra"])
+      included.fulfill()
+    }
+    waitForExpectations(timeout: 10)
+
+    let removed = expectation(description: "saved folder removed")
+    plugin.handle(FlutterMethodCall(methodName: "removeAppSearchFolder", arguments: ["id": id])) { result in
+      XCTAssertNil(result)
+      removed.fulfill()
+    }
+    waitForExpectations(timeout: 10)
+    XCTAssertEqual(initial.list().count, 1)
+
+    let excluded = expectation(description: "removed folder excluded")
+    plugin.handle(list) { result in
+      let apps = result as? [[String: Any]]
+      XCTAssertEqual(apps?.compactMap { $0["appName"] as? String }, ["Default"])
+      excluded.fulfill()
+    }
+    waitForExpectations(timeout: 10)
+    XCTAssertTrue(fm.fileExists(atPath: extra.path))
   }
 
   func testDefaultBundleLookupWorksInTheHostSandbox() throws {

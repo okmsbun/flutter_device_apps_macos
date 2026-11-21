@@ -1,8 +1,12 @@
-## Unreleased
+## 1.0.0
 
-- Added `getApp` with bundle ID/path lookup and an interactive example.
-- Added agent/background flags and optional architectures, bundle size, and Team ID.
-- Updated the example with optional metadata controls.
+- Added single and batch app lookups by bundle ID or absolute path, standalone PNG icon lookup, and installation, system, and launchability checks.
+- Added opt-in Spotlight discovery and user-selected search folders saved with security-scoped bookmarks.
+- Added agent and background flags, plus optional CPU architectures, bundle size, and Team ID.
+- Added framework detection for Flutter, Electron, Qt, Unity, and Java Runtime, plus install source indicators and declared capabilities.
+- Added actions to open an app, reveal it in Finder, and move its bundle to Trash.
+- Added running app snapshots and APIs to find the default or available file handlers and open a file in a selected app.
+- Expanded the example and installed apps guide to cover discovery, app lookup, and file handlers.
 
 ## 0.1.0
 
