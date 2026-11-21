@@ -593,6 +593,52 @@ class RunnerTests: XCTestCase {
     waitForExpectations(timeout: 10)
   }
 
+  func testAppStatusChecksUseSingleLookupAndLaunchPreflight() throws {
+    let system = try app("System.app", in: systemApps, bundleIdentifier: "com.example.system")
+    let regular = try app("Regular.app")
+    let agent = try app("Agent.app", extra: ["LSUIElement": true])
+    let background = try app("Background.app", extra: ["LSBackgroundOnly": true])
+    let disabled = try app("Disabled.app")
+    try fm.setAttributes(
+      [.posixPermissions: 0o644],
+      ofItemAtPath: disabled.appendingPathComponent("Contents/MacOS/Executable").path
+    )
+    let missing = root.appendingPathComponent("Missing.app").path
+    let restricted = DirectoryReadDenyingFileManager(denied: [userApps, systemApps])
+    let scanner = MacosAppScanner(
+      searchDirectories: directories, fileManager: restricted,
+      applicationResolver: { $0 == "com.example.system" ? system : nil }
+    )
+    let plugin = FlutterDeviceAppsMacosPlugin(scanner: scanner)
+    let checks: [(method: String, arguments: [String: String], expected: Bool?)] = [
+      ("isAppInstalled", ["bundleIdentifier": "com.example.system"], true),
+      ("isAppInstalled", ["appPath": agent.path], true),
+      ("isAppInstalled", ["appPath": missing], false),
+      ("isSystemApp", ["appPath": system.path], true),
+      ("isSystemApp", ["appPath": regular.path], false),
+      ("isSystemApp", ["appPath": missing], nil),
+      ("isAppLaunchable", ["appPath": regular.path], true),
+      ("isAppLaunchable", ["appPath": agent.path], false),
+      ("isAppLaunchable", ["appPath": background.path], false),
+      ("isAppLaunchable", ["appPath": disabled.path], false),
+      ("isAppLaunchable", ["appPath": missing], false),
+    ]
+    for check in checks {
+      let completed = expectation(description: check.method)
+      plugin.handle(FlutterMethodCall(methodName: check.method, arguments: check.arguments)) { result in
+        XCTAssertTrue(Thread.isMainThread)
+        if check.expected == nil {
+          XCTAssertNil(result)
+        } else {
+          XCTAssertEqual(result as? Bool, check.expected, "\(check.method) \(check.arguments)")
+        }
+        completed.fulfill()
+      }
+    }
+    waitForExpectations(timeout: 10)
+    XCTAssertEqual(restricted.directoryReadCount, 0)
+  }
+
   func testIconLookupReturnsPNGWithoutEnumeratingDirectories() throws {
     let url = try app("Editor.app")
     let restricted = DirectoryReadDenyingFileManager(denied: [userApps, systemApps])

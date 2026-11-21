@@ -43,10 +43,20 @@ public class FlutterDeviceAppsMacosPlugin: NSObject, FlutterPlugin {
           try self.scanner.getApps(targets: request.targets, options: request.options).map(Self.encodeApp)
         }
       case "getAppIcon":
-        let arguments = try AppMethodArguments(call.arguments, method: "getAppIcon")
-        let target = try arguments.lookupTarget()
-        perform(errorCode: "ERR_GET_ICON", result: result) {
+        try performLookup(call, errorCode: "ERR_GET_ICON", result: result) { target in
           try self.scanner.getAppIcon(target: target).map { FlutterStandardTypedData(bytes: $0) }
+        }
+      case "isAppInstalled":
+        try performLookup(call, errorCode: "ERR_QUERY", result: result) { target in
+          try self.scanner.isAppInstalled(target: target)
+        }
+      case "isSystemApp":
+        try performLookup(call, errorCode: "ERR_QUERY", result: result) { target in
+          try self.scanner.isSystemApp(target: target)
+        }
+      case "isAppLaunchable":
+        try performLookup(call, errorCode: "ERR_QUERY", result: result) { target in
+          try self.scanner.isAppLaunchable(target: target)
         }
       default:
         result(FlutterMethodNotImplemented)
@@ -62,6 +72,15 @@ public class FlutterDeviceAppsMacosPlugin: NSObject, FlutterPlugin {
       encoded["iconBytes"] = FlutterStandardTypedData(bytes: bytes)
     }
     return encoded
+  }
+
+  private func performLookup(
+    _ call: FlutterMethodCall, errorCode: String, result: @escaping FlutterResult,
+    operation: @escaping (AppLookupTarget) throws -> Any?
+  ) throws {
+    let arguments = try AppMethodArguments(call.arguments, method: call.method)
+    let target = try arguments.lookupTarget()
+    perform(errorCode: errorCode, result: result) { try operation(target) }
   }
 
   private func perform(

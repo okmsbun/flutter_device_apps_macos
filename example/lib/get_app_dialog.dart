@@ -3,6 +3,9 @@ import 'dart:typed_data';
 import 'package:flutter_device_apps_macos/flutter_device_apps_macos.dart';
 import 'package:material_ui/material_ui.dart';
 
+typedef _AppCheck =
+    Future<bool?> Function({String? bundleIdentifier, String? appPath});
+
 /// Looks up one app by bundle identifier or app path.
 class GetAppDialog extends StatefulWidget {
   const GetAppDialog({super.key, this.appPath});
@@ -23,6 +26,7 @@ class _GetAppDialogState extends State<GetAppDialog> {
   bool _includeSigningInfo = false;
   Future<MacosAppInfo?>? _lookup;
   Future<Uint8List?>? _iconLookup;
+  Future<String>? _checkLookup;
 
   @override
   void initState() {
@@ -52,8 +56,8 @@ class _GetAppDialogState extends State<GetAppDialog> {
   void _search() {
     final lookup = _loadApp();
     setState(() {
+      _clearResults();
       _lookup = lookup;
-      _iconLookup = null;
     });
   }
 
@@ -64,9 +68,35 @@ class _GetAppDialogState extends State<GetAppDialog> {
     );
     lookup.ignore();
     setState(() {
+      _clearResults();
       _iconLookup = lookup;
-      _lookup = null;
     });
+  }
+
+  void _checkApp(String label, _AppCheck check) {
+    final lookup =
+        check(
+          bundleIdentifier: _byPath ? null : _target.text,
+          appPath: _byPath ? _target.text : null,
+        ).then((result) {
+          final value = switch (result) {
+            true => 'Yes',
+            false => 'No',
+            null => 'Unavailable',
+          };
+          return '$label: $value';
+        });
+    lookup.ignore();
+    setState(() {
+      _clearResults();
+      _checkLookup = lookup;
+    });
+  }
+
+  void _clearResults() {
+    _lookup = null;
+    _iconLookup = null;
+    _checkLookup = null;
   }
 
   @override
@@ -96,8 +126,7 @@ class _GetAppDialogState extends State<GetAppDialog> {
                 setState(() {
                   _byPath = value.single;
                   _target.clear();
-                  _lookup = null;
-                  _iconLookup = null;
+                  _clearResults();
                 });
               },
             ),
@@ -107,13 +136,38 @@ class _GetAppDialogState extends State<GetAppDialog> {
               controller: _target,
               decoration: InputDecoration(
                 labelText: _byPath ? 'Absolute app path' : 'Bundle identifier',
-                hintText: _byPath ? '/Applications/Safari.app' : 'com.apple.Safari',
+                hintText: _byPath
+                    ? '/Applications/Safari.app'
+                    : 'com.apple.Safari',
               ),
               onSubmitted: (_) => _search(),
-              onChanged: (_) => setState(() {
-                _lookup = null;
-                _iconLookup = null;
-              }),
+              onChanged: (_) => setState(_clearResults),
+            ),
+            Wrap(
+              spacing: 8,
+              children: [
+                TextButton(
+                  onPressed: () => _checkApp(
+                    'Installed',
+                    FlutterDeviceAppsMacos.isAppInstalled,
+                  ),
+                  child: const Text('Installed?'),
+                ),
+                TextButton(
+                  onPressed: () => _checkApp(
+                    'System app',
+                    FlutterDeviceAppsMacos.isSystemApp,
+                  ),
+                  child: const Text('System?'),
+                ),
+                TextButton(
+                  onPressed: () => _checkApp(
+                    'Launchable',
+                    FlutterDeviceAppsMacos.isAppLaunchable,
+                  ),
+                  child: const Text('Launchable?'),
+                ),
+              ],
             ),
             const SizedBox(height: 12),
             Wrap(
@@ -154,6 +208,19 @@ class _GetAppDialogState extends State<GetAppDialog> {
               ],
             ),
             const SizedBox(height: 16),
+            if (_checkLookup != null)
+              FutureBuilder<String>(
+                future: _checkLookup,
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState != ConnectionState.done) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  if (snapshot.hasError) {
+                    return Text('Could not check app: ${snapshot.error}');
+                  }
+                  return Text(snapshot.requireData);
+                },
+              ),
             if (_iconLookup != null)
               FutureBuilder<Uint8List?>(
                 future: _iconLookup,
@@ -188,7 +255,8 @@ class _GetAppDialogState extends State<GetAppDialog> {
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      if (icon != null) Image.memory(icon, width: 64, height: 64),
+                      if (icon != null)
+                        Image.memory(icon, width: 64, height: 64),
                       SelectableText(
                         [
                           'Name: ${app.appName ?? 'Unavailable'}',
@@ -216,7 +284,10 @@ class _GetAppDialogState extends State<GetAppDialog> {
         ),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Close')),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Close'),
+        ),
         TextButton(onPressed: _loadIcon, child: const Text('Load icon')),
         FilledButton(onPressed: _search, child: const Text('Lookup')),
       ],

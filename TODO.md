@@ -16,6 +16,9 @@ Use bundle identifiers, app paths, and macOS metadata throughout the API.
       and null when the selected app is unavailable or inaccessible.
 - [x] `getApps`: ordered batch lookup by bundle ID or app path, deduplicated by resolved path.
 - [x] `getAppIcon`: standalone PNG icon lookup by bundle ID or app path.
+- [x] `isAppInstalled`: check for an accessible app bundle and document negative lookup results.
+- [x] `isSystemApp`: apply the same location heuristic as `MacosAppInfo.isSystem`.
+- [x] `isAppLaunchable`: apply the same preflight as `listApps(onlyLaunchable: true)`.
 - [x] Example with filters, icons, refresh, empty results, and errors.
 - [x] Dart, widget, and native fixture tests; sandbox discovery smoke check.
 - [x] GitHub Actions for quality checks, Dart/widget tests, and native macOS tests.
@@ -23,9 +26,6 @@ Use bundle identifiers, app paths, and macOS metadata throughout the API.
 
 ## Next APIs
 
-- [ ] `isAppInstalled`: document the limits of a negative lookup result.
-- [ ] `isSystemApp`: use the same documented location heuristic as `MacosAppInfo.isSystem`.
-- [ ] `isAppLaunchable`: define preflight semantics without promising launch success.
 - [ ] `openApp`: use NSWorkspace and report asynchronous launch success/errors.
 - [ ] `detectAppFrameworks`: define framework indicators and a result enum;
       distinguish packaged components from the primary UI framework.

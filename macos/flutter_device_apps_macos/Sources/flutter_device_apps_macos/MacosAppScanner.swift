@@ -267,13 +267,7 @@ final class MacosAppScanner {
           continue
         }
         let executable = executableURL(url, info: info)
-        if options.onlyLaunchable {
-          guard let executable = executable,
-                fileManager.isExecutableFile(atPath: executable.path),
-                (try? executable.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true,
-                !plistBoolean(info["LSBackgroundOnly"]),
-                !plistBoolean(info["LSUIElement"]) else { continue }
-        }
+        if options.onlyLaunchable && !canLaunch(executable, info: info) { continue }
         visitedPaths.insert(url.path)
         apps.append(appMap(url, info: info, executable: executable,
                            isSystem: isSystem, options: options))
@@ -308,6 +302,20 @@ final class MacosAppScanner {
   func getAppIcon(target: AppLookupTarget) throws -> Data? {
     guard let (url, _) = try resolveApp(target: target) else { return nil }
     return iconProvider(url)
+  }
+
+  func isAppInstalled(target: AppLookupTarget) throws -> Bool {
+    try resolveApp(target: target) != nil
+  }
+
+  func isSystemApp(target: AppLookupTarget) throws -> Bool? {
+    guard let (url, _) = try resolveApp(target: target) else { return nil }
+    return isSystemLocation(url)
+  }
+
+  func isAppLaunchable(target: AppLookupTarget) throws -> Bool {
+    guard let (url, info) = try resolveApp(target: target) else { return false }
+    return canLaunch(executableURL(url, info: info), info: info)
   }
 
   private func resolveApp(target: AppLookupTarget) throws -> (URL, [String: Any])? {
@@ -364,6 +372,14 @@ final class MacosAppScanner {
           !name.isEmpty, name != ".", name != "..", !name.contains("/") else { return nil }
     return url.appendingPathComponent("Contents/MacOS", isDirectory: true)
       .appendingPathComponent(name)
+  }
+
+  private func canLaunch(_ executable: URL?, info: [String: Any]) -> Bool {
+    guard let executable = executable else { return false }
+    return fileManager.isExecutableFile(atPath: executable.path)
+      && (try? executable.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
+      && !plistBoolean(info["LSBackgroundOnly"])
+      && !plistBoolean(info["LSUIElement"])
   }
 
   private func plistBoolean(_ value: Any?) -> Bool {

@@ -9,22 +9,40 @@ export 'macos_app_info.dart' show MacosAppInfo;
 
 /// Discovers and inspects installed macOS app bundles.
 abstract final class FlutterDeviceAppsMacos {
-  static const MethodChannel _mch = MethodChannel('flutter_device_apps_macos/methods');
+  static const MethodChannel _mch = MethodChannel(
+    'flutter_device_apps_macos/methods',
+  );
 
-  static List<MacosAppInfo> _decodeApps(List<dynamic>? raw) => (raw ?? const <dynamic>[])
-      .map((entry) => MacosAppInfo.fromMap(Map<String, Object?>.from(entry as Map)))
-      .toList();
+  static List<MacosAppInfo> _decodeApps(List<dynamic>? raw) =>
+      (raw ?? const <dynamic>[])
+          .map(
+            (entry) =>
+                MacosAppInfo.fromMap(Map<String, Object?>.from(entry as Map)),
+          )
+          .toList();
 
-  static Map<String, String?> _lookupArguments(String? bundleIdentifier, String? appPath) {
+  static Map<String, String?> _lookupArguments(
+    String? bundleIdentifier,
+    String? appPath,
+  ) {
     if ((bundleIdentifier == null) == (appPath == null)) {
-      throw ArgumentError('Provide exactly one of bundleIdentifier or appPath.');
+      throw ArgumentError(
+        'Provide exactly one of bundleIdentifier or appPath.',
+      );
     }
     final target = bundleIdentifier ?? appPath!;
     if (target.trim().isEmpty || target.contains('\u0000')) {
-      throw ArgumentError.value(target, bundleIdentifier == null ? 'appPath' : 'bundleIdentifier');
+      throw ArgumentError.value(
+        target,
+        bundleIdentifier == null ? 'appPath' : 'bundleIdentifier',
+      );
     }
     if (appPath != null && !appPath.startsWith('/')) {
-      throw ArgumentError.value(appPath, 'appPath', 'Use an absolute filesystem path.');
+      throw ArgumentError.value(
+        appPath,
+        'appPath',
+        'Use an absolute filesystem path.',
+      );
     }
     return {'bundleIdentifier': bundleIdentifier, 'appPath': appPath};
   }
@@ -66,16 +84,17 @@ abstract final class FlutterDeviceAppsMacos {
     String? bundleIdentifierPrefix,
     String? bundleIdentifierContains,
   }) async {
-    final List<dynamic>? raw = await _mch.invokeListMethod<dynamic>('listApps', {
-      'includeSystem': includeSystem,
-      'onlyLaunchable': onlyLaunchable,
-      'includeIcons': includeIcons,
-      'includeArchitectures': includeArchitectures,
-      'includeSize': includeSize,
-      'includeSigningInfo': includeSigningInfo,
-      'bundleIdentifierPrefix': bundleIdentifierPrefix,
-      'bundleIdentifierContains': bundleIdentifierContains,
-    });
+    final List<dynamic>? raw = await _mch
+        .invokeListMethod<dynamic>('listApps', {
+          'includeSystem': includeSystem,
+          'onlyLaunchable': onlyLaunchable,
+          'includeIcons': includeIcons,
+          'includeArchitectures': includeArchitectures,
+          'includeSize': includeSize,
+          'includeSigningInfo': includeSigningInfo,
+          'bundleIdentifierPrefix': bundleIdentifierPrefix,
+          'bundleIdentifierContains': bundleIdentifierContains,
+        });
     return _decodeApps(raw);
   }
 
@@ -103,14 +122,17 @@ abstract final class FlutterDeviceAppsMacos {
     bool includeSize = false,
     bool includeSigningInfo = false,
   }) async {
-    final Map<dynamic, dynamic>? raw = await _mch.invokeMapMethod<dynamic, dynamic>('getApp', {
-      ..._lookupArguments(bundleIdentifier, appPath),
-      'includeIcon': includeIcon,
-      'includeArchitectures': includeArchitectures,
-      'includeSize': includeSize,
-      'includeSigningInfo': includeSigningInfo,
-    });
-    return raw == null ? null : MacosAppInfo.fromMap(Map<String, Object?>.from(raw));
+    final Map<dynamic, dynamic>? raw = await _mch
+        .invokeMapMethod<dynamic, dynamic>('getApp', {
+          ..._lookupArguments(bundleIdentifier, appPath),
+          'includeIcon': includeIcon,
+          'includeArchitectures': includeArchitectures,
+          'includeSize': includeSize,
+          'includeSigningInfo': includeSigningInfo,
+        });
+    return raw == null
+        ? null
+        : MacosAppInfo.fromMap(Map<String, Object?>.from(raw));
   }
 
   /// Looks up bundle IDs and absolute app paths in one native request.
@@ -160,6 +182,50 @@ abstract final class FlutterDeviceAppsMacos {
   /// Returns null if the app is unavailable or the icon cannot be encoded.
   /// Invalid targets throw [ArgumentError]. Unexpected native failures throw
   /// a [PlatformException] with `ERR_GET_ICON`.
-  static Future<Uint8List?> getAppIcon({String? bundleIdentifier, String? appPath}) async =>
-      _mch.invokeMethod<Uint8List>('getAppIcon', _lookupArguments(bundleIdentifier, appPath));
+  static Future<Uint8List?> getAppIcon({
+    String? bundleIdentifier,
+    String? appPath,
+  }) async => _mch.invokeMethod<Uint8List>(
+    'getAppIcon',
+    _lookupArguments(bundleIdentifier, appPath),
+  );
+
+  /// Checks for an accessible app bundle using the single app lookup rules of [getApp].
+  ///
+  /// Supply exactly one of [bundleIdentifier] and [appPath]. A false result
+  /// includes missing apps and apps outside the caller's access.
+  static Future<bool> isAppInstalled({
+    String? bundleIdentifier,
+    String? appPath,
+  }) async =>
+      await _checkApp('isAppInstalled', bundleIdentifier, appPath) ?? false;
+
+  /// Classifies a resolved app using the location heuristic of [MacosAppInfo.isSystem].
+  ///
+  /// Supply exactly one of [bundleIdentifier] and [appPath]. Returns null
+  /// when the selected app is unavailable or inaccessible.
+  static Future<bool?> isSystemApp({
+    String? bundleIdentifier,
+    String? appPath,
+  }) => _checkApp('isSystemApp', bundleIdentifier, appPath);
+
+  /// Checks if an app passes the same preflight as [listApps] with onlyLaunchable enabled.
+  ///
+  /// Supply exactly one of [bundleIdentifier] and [appPath]. The app must have
+  /// a regular file with execute permission and both the agent and background
+  /// flags disabled. Actual launch can still fail under macOS runtime conditions.
+  static Future<bool> isAppLaunchable({
+    String? bundleIdentifier,
+    String? appPath,
+  }) async =>
+      await _checkApp('isAppLaunchable', bundleIdentifier, appPath) ?? false;
+
+  static Future<bool?> _checkApp(
+    String method,
+    String? bundleIdentifier,
+    String? appPath,
+  ) async => _mch.invokeMethod<bool>(
+    method,
+    _lookupArguments(bundleIdentifier, appPath),
+  );
 }

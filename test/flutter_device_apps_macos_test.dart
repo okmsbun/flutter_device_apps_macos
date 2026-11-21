@@ -390,6 +390,79 @@ void main() {
     });
   });
 
+  group('app status checks', () {
+    test('forwards the exact targets and preserves status responses', () async {
+      response = true;
+      expect(
+        await FlutterDeviceAppsMacos.isAppInstalled(
+          bundleIdentifier: 'com.example.app',
+        ),
+        isTrue,
+      );
+
+      response = null;
+      expect(
+        await FlutterDeviceAppsMacos.isSystemApp(appPath: '/Missing.app'),
+        isNull,
+      );
+
+      response = false;
+      expect(
+        await FlutterDeviceAppsMacos.isAppLaunchable(
+          appPath: '/Applications/Agent.app',
+        ),
+        isFalse,
+      );
+
+      expect(calls.map((call) => call.method), [
+        'isAppInstalled',
+        'isSystemApp',
+        'isAppLaunchable',
+      ]);
+      expect(calls.map((call) => call.arguments), [
+        {'bundleIdentifier': 'com.example.app', 'appPath': null},
+        {'bundleIdentifier': null, 'appPath': '/Missing.app'},
+        {'bundleIdentifier': null, 'appPath': '/Applications/Agent.app'},
+      ]);
+    });
+
+    test(
+      'validates targets and propagates unexpected query failures',
+      () async {
+        await expectLater(
+          FlutterDeviceAppsMacos.isAppInstalled(),
+          throwsArgumentError,
+        );
+        await expectLater(
+          FlutterDeviceAppsMacos.isSystemApp(appPath: 'App.app'),
+          throwsArgumentError,
+        );
+        await expectLater(
+          FlutterDeviceAppsMacos.isAppLaunchable(
+            bundleIdentifier: 'com.example.app',
+            appPath: '/Applications/App.app',
+          ),
+          throwsArgumentError,
+        );
+        expect(calls, isEmpty);
+
+        error = PlatformException(code: 'ERR_QUERY');
+        await expectLater(
+          FlutterDeviceAppsMacos.isAppLaunchable(
+            bundleIdentifier: 'com.example.app',
+          ),
+          throwsA(
+            isA<PlatformException>().having(
+              (error) => error.code,
+              'code',
+              'ERR_QUERY',
+            ),
+          ),
+        );
+      },
+    );
+  });
+
   group('MacosAppInfo', () {
     test(
       'keeps unavailable metadata null and protects the architecture list',
