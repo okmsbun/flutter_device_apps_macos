@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_device_apps_macos_example/main.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -8,6 +10,7 @@ void main() {
   final calls = <MethodCall>[];
   Object? response;
   Object? getResponse;
+  Uint8List? iconResponse;
   PlatformException? lookupError;
   bool fail = false;
 
@@ -15,6 +18,7 @@ void main() {
     calls.clear();
     fail = false;
     lookupError = null;
+    iconResponse = null;
     getResponse = {
       'appName': 'Lookup Editor',
       'bundleIdentifier': 'com.example.lookup',
@@ -38,23 +42,46 @@ void main() {
         'teamIdentifier': 'EXAMPLE123',
       },
     ];
-    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(channel, (call) async {
-          calls.add(call);
-          if (call.method == 'getApp') {
-            if (lookupError != null) throw lookupError!;
-            return getResponse;
-          }
-          if (fail) {
-            throw PlatformException(code: 'ERR_LIST', message: 'Access denied');
-          }
-          return response;
-        });
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+      channel,
+      (call) async {
+        calls.add(call);
+        if (call.method == 'getApp') {
+          if (lookupError != null) throw lookupError!;
+          return getResponse;
+        }
+        if (call.method == 'getAppIcon') return iconResponse;
+        if (fail) {
+          throw PlatformException(code: 'ERR_LIST', message: 'Access denied');
+        }
+        return response;
+      },
+    );
   });
 
   tearDown(() {
-    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(channel, null);
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+      channel,
+      null,
+    );
+  });
+
+  testWidgets('loads an icon through the icon API', (tester) async {
+    iconResponse = base64Decode(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j2ioAAAAASUVORK5CYII=',
+    );
+    await tester.pumpWidget(const MaterialApp(home: MacosPluginExample()));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Get app'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const ValueKey('get-app-target')), 'com.example.editor');
+    await tester.tap(find.text('Load icon'));
+    await tester.pumpAndSettle();
+
+    expect(calls.map((call) => call.method), ['listApps', 'getAppIcon']);
+    expect(calls.last.arguments, {'bundleIdentifier': 'com.example.editor', 'appPath': null});
+    expect(find.byType(Image), findsOneWidget);
   });
 
   testWidgets('looks up a batch of bundle IDs and paths', (tester) async {
@@ -97,19 +124,14 @@ void main() {
     expect(find.textContaining('Architectures:'), findsNothing);
   });
 
-  testWidgets('applies bundle ID filters and reloads with selected options', (
-    tester,
-  ) async {
+  testWidgets('applies bundle ID filters and reloads with selected options', (tester) async {
     await tester.pumpWidget(const MaterialApp(home: MacosPluginExample()));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).at(0), 'com.example.');
     await tester.enterText(find.byType(TextField).at(1), 'editor');
     await tester.tap(find.byTooltip('Apply filters'));
     await tester.pumpAndSettle();
-    expect(
-      (calls.last.arguments as Map)['bundleIdentifierPrefix'],
-      'com.example.',
-    );
+    expect((calls.last.arguments as Map)['bundleIdentifierPrefix'], 'com.example.');
     expect((calls.last.arguments as Map)['bundleIdentifierContains'], 'editor');
     await tester.tap(find.text('Include system'));
     await tester.pumpAndSettle();
@@ -134,9 +156,7 @@ void main() {
     expect(find.textContaining('Team ID: EXAMPLE123'), findsOneWidget);
   });
 
-  testWidgets('shows unavailable optional metadata without hiding the app', (
-    tester,
-  ) async {
+  testWidgets('shows unavailable optional metadata without hiding the app', (tester) async {
     response = [
       {'appName': 'Unknown metadata', 'appPath': '/Applications/Unknown.app'},
     ];
@@ -157,17 +177,9 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Get app'));
     await tester.pumpAndSettle();
-    await tester.enterText(
-      find.byKey(const ValueKey('get-app-target')),
-      'com.example.lookup',
-    );
+    await tester.enterText(find.byKey(const ValueKey('get-app-target')), 'com.example.lookup');
     for (final label in ['Icon', 'Architectures', 'Size', 'Signing info']) {
-      await tester.tap(
-        find.descendant(
-          of: find.byType(AlertDialog),
-          matching: find.text(label),
-        ),
-      );
+      await tester.tap(find.descendant(of: find.byType(AlertDialog), matching: find.text(label)));
       await tester.pumpAndSettle();
     }
     await tester.tap(find.text('Lookup'));
@@ -185,9 +197,7 @@ void main() {
     expect(find.textContaining('Team ID: EXAMPLE123'), findsOneWidget);
   });
 
-  testWidgets('selects an exact listed app copy using its path', (
-    tester,
-  ) async {
+  testWidgets('selects an exact listed app copy using its path', (tester) async {
     await tester.pumpWidget(const MaterialApp(home: MacosPluginExample()));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Example Editor'));
@@ -196,18 +206,13 @@ void main() {
     expect((lookup.arguments as Map)['appPath'], '/Applications/Editor.app');
     expect((lookup.arguments as Map)['bundleIdentifier'], isNull);
     expect(
-      tester
-          .widget<TextField>(find.byKey(const ValueKey('get-app-target')))
-          .controller!
-          .text,
+      tester.widget<TextField>(find.byKey(const ValueKey('get-app-target'))).controller!.text,
       '/Applications/Editor.app',
     );
     expect(find.textContaining('Name: Lookup Editor'), findsOneWidget);
   });
 
-  testWidgets('shows lookup misses, native failures, and invalid paths', (
-    tester,
-  ) async {
+  testWidgets('shows lookup misses, native failures, and invalid paths', (tester) async {
     getResponse = null;
     await tester.pumpWidget(const MaterialApp(home: MacosPluginExample()));
     await tester.pumpAndSettle();
@@ -231,9 +236,7 @@ void main() {
     expect(calls.where((call) => call.method == 'getApp'), hasLength(2));
   });
 
-  testWidgets('shows scan failures and retries to an empty result', (
-    tester,
-  ) async {
+  testWidgets('shows scan failures and retries to an empty result', (tester) async {
     fail = true;
     await tester.pumpWidget(const MaterialApp(home: MacosPluginExample()));
     await tester.pumpAndSettle();

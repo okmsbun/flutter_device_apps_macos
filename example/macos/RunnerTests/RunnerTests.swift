@@ -593,6 +593,39 @@ class RunnerTests: XCTestCase {
     waitForExpectations(timeout: 10)
   }
 
+  func testIconLookupReturnsPNGWithoutEnumeratingDirectories() throws {
+    let url = try app("Editor.app")
+    let restricted = DirectoryReadDenyingFileManager(denied: [userApps, systemApps])
+    let scanner = MacosAppScanner(
+      searchDirectories: directories, fileManager: restricted,
+      applicationResolver: { identifier in
+        XCTAssertEqual(identifier, "com.example.app")
+        XCTAssertFalse(Thread.isMainThread)
+        return url
+      }
+    )
+    let plugin = FlutterDeviceAppsMacosPlugin(scanner: scanner)
+    let completed = expectation(description: "Standalone PNG icon")
+    plugin.handle(FlutterMethodCall(methodName: "getAppIcon", arguments: [
+      "bundleIdentifier": "com.example.app",
+    ])) { result in
+      XCTAssertTrue(Thread.isMainThread)
+      let icon = (result as? FlutterStandardTypedData).flatMap { NSBitmapImageRep(data: $0.data) }
+      XCTAssertEqual(icon?.pixelsWide, 64)
+      XCTAssertEqual(icon?.pixelsHigh, 64)
+      XCTAssertEqual(restricted.directoryReadCount, 0)
+      completed.fulfill()
+    }
+    let missing = expectation(description: "Missing app icon")
+    plugin.handle(FlutterMethodCall(methodName: "getAppIcon", arguments: [
+      "appPath": root.appendingPathComponent("Missing.app").path,
+    ])) {
+      XCTAssertNil($0)
+      missing.fulfill()
+    }
+    waitForExpectations(timeout: 10)
+  }
+
   func testBatchLookupPreservesOrderAndDeduplicatesResolvedCopies() throws {
     let first = try app("First.app", bundleIdentifier: "com.example.copy")
     let preferred = try app("Second.app", bundleIdentifier: "com.example.copy")

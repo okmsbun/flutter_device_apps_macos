@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter_device_apps_macos/flutter_device_apps_macos.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -20,6 +22,7 @@ class _GetAppDialogState extends State<GetAppDialog> {
   bool _includeSize = false;
   bool _includeSigningInfo = false;
   Future<MacosAppInfo?>? _lookup;
+  Future<Uint8List?>? _iconLookup;
 
   @override
   void initState() {
@@ -50,6 +53,19 @@ class _GetAppDialogState extends State<GetAppDialog> {
     final lookup = _loadApp();
     setState(() {
       _lookup = lookup;
+      _iconLookup = null;
+    });
+  }
+
+  void _loadIcon() {
+    final lookup = FlutterDeviceAppsMacos.getAppIcon(
+      bundleIdentifier: _byPath ? null : _target.text,
+      appPath: _byPath ? _target.text : null,
+    );
+    lookup.ignore();
+    setState(() {
+      _iconLookup = lookup;
+      _lookup = null;
     });
   }
 
@@ -81,6 +97,7 @@ class _GetAppDialogState extends State<GetAppDialog> {
                   _byPath = value.single;
                   _target.clear();
                   _lookup = null;
+                  _iconLookup = null;
                 });
               },
             ),
@@ -90,13 +107,12 @@ class _GetAppDialogState extends State<GetAppDialog> {
               controller: _target,
               decoration: InputDecoration(
                 labelText: _byPath ? 'Absolute app path' : 'Bundle identifier',
-                hintText: _byPath
-                    ? '/Applications/Safari.app'
-                    : 'com.apple.Safari',
+                hintText: _byPath ? '/Applications/Safari.app' : 'com.apple.Safari',
               ),
               onSubmitted: (_) => _search(),
               onChanged: (_) => setState(() {
                 _lookup = null;
+                _iconLookup = null;
               }),
             ),
             const SizedBox(height: 12),
@@ -138,6 +154,22 @@ class _GetAppDialogState extends State<GetAppDialog> {
               ],
             ),
             const SizedBox(height: 16),
+            if (_iconLookup != null)
+              FutureBuilder<Uint8List?>(
+                future: _iconLookup,
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState != ConnectionState.done) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  if (snapshot.hasError) {
+                    return Text('Could not load icon: ${snapshot.error}');
+                  }
+                  final icon = snapshot.data;
+                  return icon == null
+                      ? const Text('App icon unavailable.')
+                      : Image.memory(icon, width: 64, height: 64);
+                },
+              ),
             if (_lookup != null)
               FutureBuilder<MacosAppInfo?>(
                 future: _lookup,
@@ -156,8 +188,7 @@ class _GetAppDialogState extends State<GetAppDialog> {
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      if (icon != null)
-                        Image.memory(icon, width: 64, height: 64),
+                      if (icon != null) Image.memory(icon, width: 64, height: 64),
                       SelectableText(
                         [
                           'Name: ${app.appName ?? 'Unavailable'}',
@@ -185,10 +216,8 @@ class _GetAppDialogState extends State<GetAppDialog> {
         ),
       ),
       actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Close'),
-        ),
+        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Close')),
+        TextButton(onPressed: _loadIcon, child: const Text('Load icon')),
         FilledButton(onPressed: _search, child: const Text('Lookup')),
       ],
     );

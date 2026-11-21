@@ -4,7 +4,7 @@ import Foundation
 import MachO
 import Security
 
-private struct AppMethodArguments {
+struct AppMethodArguments {
   let values: [String: Any]
 
   init(_ arguments: Any?, method: String) throws {
@@ -32,6 +32,12 @@ private struct AppMethodArguments {
       throw AppScanError.invalidArgument("\(key) must be a string")
     }
     return text
+  }
+
+  func lookupTarget() throws -> AppLookupTarget {
+    try AppLookupTarget(
+      bundleIdentifier: string("bundleIdentifier"), appPath: string("appPath")
+    )
   }
 
   func lookupOptions(iconKey: String) throws -> AppListOptions {
@@ -128,9 +134,7 @@ struct AppLookupRequest {
 
   init(arguments: Any?) throws {
     let values = try AppMethodArguments(arguments, method: "getApp")
-    target = try AppLookupTarget(
-      bundleIdentifier: values.string("bundleIdentifier"), appPath: values.string("appPath")
-    )
+    target = try values.lookupTarget()
     options = try values.lookupOptions(iconKey: "includeIcon")
   }
 }
@@ -299,6 +303,11 @@ final class MacosAppScanner {
             seenPaths.insert(url.path).inserted else { return nil }
       return lookupMap(url, info: info, options: options)
     }
+  }
+
+  func getAppIcon(target: AppLookupTarget) throws -> Data? {
+    guard let (url, _) = try resolveApp(target: target) else { return nil }
+    return iconProvider(url)
   }
 
   private func resolveApp(target: AppLookupTarget) throws -> (URL, [String: Any])? {

@@ -338,6 +338,58 @@ void main() {
     });
   });
 
+  group('getAppIcon', () {
+    test(
+      'returns native icon bytes or null through a single request',
+      () async {
+        final icon = Uint8List.fromList([137, 80, 78, 71]);
+        response = icon;
+        expect(
+          await FlutterDeviceAppsMacos.getAppIcon(
+            bundleIdentifier: 'com.example.editor',
+          ),
+          icon,
+        );
+        expect(calls.single.method, 'getAppIcon');
+        expect(calls.single.arguments, {
+          'bundleIdentifier': 'com.example.editor',
+          'appPath': null,
+        });
+
+        calls.clear();
+        response = null;
+        expect(
+          await FlutterDeviceAppsMacos.getAppIcon(appPath: '/Missing.app'),
+          isNull,
+        );
+        expect(calls.single.method, 'getAppIcon');
+        expect(calls.single.arguments, {
+          'bundleIdentifier': null,
+          'appPath': '/Missing.app',
+        });
+      },
+    );
+
+    test('rejects missing, conflicting, and relative targets', () async {
+      await expectLater(
+        FlutterDeviceAppsMacos.getAppIcon(),
+        throwsArgumentError,
+      );
+      await expectLater(
+        FlutterDeviceAppsMacos.getAppIcon(
+          bundleIdentifier: 'com.example.editor',
+          appPath: '/Applications/Editor.app',
+        ),
+        throwsArgumentError,
+      );
+      await expectLater(
+        FlutterDeviceAppsMacos.getAppIcon(appPath: 'Editor.app'),
+        throwsArgumentError,
+      );
+      expect(calls, isEmpty);
+    });
+  });
+
   group('MacosAppInfo', () {
     test(
       'keeps unavailable metadata null and protects the architecture list',

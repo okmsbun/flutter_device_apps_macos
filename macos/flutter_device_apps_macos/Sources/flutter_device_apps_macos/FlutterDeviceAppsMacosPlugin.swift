@@ -42,6 +42,12 @@ public class FlutterDeviceAppsMacosPlugin: NSObject, FlutterPlugin {
         perform(errorCode: "ERR_GET_APPS", result: result) {
           try self.scanner.getApps(targets: request.targets, options: request.options).map(Self.encodeApp)
         }
+      case "getAppIcon":
+        let arguments = try AppMethodArguments(call.arguments, method: "getAppIcon")
+        let target = try arguments.lookupTarget()
+        perform(errorCode: "ERR_GET_ICON", result: result) {
+          try self.scanner.getAppIcon(target: target).map { FlutterStandardTypedData(bytes: $0) }
+        }
       default:
         result(FlutterMethodNotImplemented)
       }

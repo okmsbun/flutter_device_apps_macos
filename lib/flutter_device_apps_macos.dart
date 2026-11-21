@@ -9,17 +9,25 @@ export 'macos_app_info.dart' show MacosAppInfo;
 
 /// Discovers and inspects installed macOS app bundles.
 abstract final class FlutterDeviceAppsMacos {
-  static const MethodChannel _mch = MethodChannel(
-    'flutter_device_apps_macos/methods',
-  );
+  static const MethodChannel _mch = MethodChannel('flutter_device_apps_macos/methods');
 
-  static List<MacosAppInfo> _decodeApps(List<dynamic>? raw) =>
-      (raw ?? const <dynamic>[])
-          .map(
-            (entry) =>
-                MacosAppInfo.fromMap(Map<String, Object?>.from(entry as Map)),
-          )
-          .toList();
+  static List<MacosAppInfo> _decodeApps(List<dynamic>? raw) => (raw ?? const <dynamic>[])
+      .map((entry) => MacosAppInfo.fromMap(Map<String, Object?>.from(entry as Map)))
+      .toList();
+
+  static Map<String, String?> _lookupArguments(String? bundleIdentifier, String? appPath) {
+    if ((bundleIdentifier == null) == (appPath == null)) {
+      throw ArgumentError('Provide exactly one of bundleIdentifier or appPath.');
+    }
+    final target = bundleIdentifier ?? appPath!;
+    if (target.trim().isEmpty || target.contains('\u0000')) {
+      throw ArgumentError.value(target, bundleIdentifier == null ? 'appPath' : 'bundleIdentifier');
+    }
+    if (appPath != null && !appPath.startsWith('/')) {
+      throw ArgumentError.value(appPath, 'appPath', 'Use an absolute filesystem path.');
+    }
+    return {'bundleIdentifier': bundleIdentifier, 'appPath': appPath};
+  }
 
   /// Lists accessible app bundles in standard macOS application directories.
   ///
@@ -58,17 +66,16 @@ abstract final class FlutterDeviceAppsMacos {
     String? bundleIdentifierPrefix,
     String? bundleIdentifierContains,
   }) async {
-    final List<dynamic>? raw = await _mch
-        .invokeListMethod<dynamic>('listApps', {
-          'includeSystem': includeSystem,
-          'onlyLaunchable': onlyLaunchable,
-          'includeIcons': includeIcons,
-          'includeArchitectures': includeArchitectures,
-          'includeSize': includeSize,
-          'includeSigningInfo': includeSigningInfo,
-          'bundleIdentifierPrefix': bundleIdentifierPrefix,
-          'bundleIdentifierContains': bundleIdentifierContains,
-        });
+    final List<dynamic>? raw = await _mch.invokeListMethod<dynamic>('listApps', {
+      'includeSystem': includeSystem,
+      'onlyLaunchable': onlyLaunchable,
+      'includeIcons': includeIcons,
+      'includeArchitectures': includeArchitectures,
+      'includeSize': includeSize,
+      'includeSigningInfo': includeSigningInfo,
+      'bundleIdentifierPrefix': bundleIdentifierPrefix,
+      'bundleIdentifierContains': bundleIdentifierContains,
+    });
     return _decodeApps(raw);
   }
 
@@ -96,37 +103,14 @@ abstract final class FlutterDeviceAppsMacos {
     bool includeSize = false,
     bool includeSigningInfo = false,
   }) async {
-    if ((bundleIdentifier == null) == (appPath == null)) {
-      throw ArgumentError(
-        'Provide exactly one of bundleIdentifier or appPath.',
-      );
-    }
-    final target = bundleIdentifier ?? appPath!;
-    if (target.trim().isEmpty || target.contains('\u0000')) {
-      throw ArgumentError.value(
-        target,
-        bundleIdentifier == null ? 'appPath' : 'bundleIdentifier',
-      );
-    }
-    if (appPath != null && !appPath.startsWith('/')) {
-      throw ArgumentError.value(
-        appPath,
-        'appPath',
-        'Use an absolute filesystem path.',
-      );
-    }
-    final Map<dynamic, dynamic>? raw = await _mch
-        .invokeMapMethod<dynamic, dynamic>('getApp', {
-          'bundleIdentifier': bundleIdentifier,
-          'appPath': appPath,
-          'includeIcon': includeIcon,
-          'includeArchitectures': includeArchitectures,
-          'includeSize': includeSize,
-          'includeSigningInfo': includeSigningInfo,
-        });
-    return raw == null
-        ? null
-        : MacosAppInfo.fromMap(Map<String, Object?>.from(raw));
+    final Map<dynamic, dynamic>? raw = await _mch.invokeMapMethod<dynamic, dynamic>('getApp', {
+      ..._lookupArguments(bundleIdentifier, appPath),
+      'includeIcon': includeIcon,
+      'includeArchitectures': includeArchitectures,
+      'includeSize': includeSize,
+      'includeSigningInfo': includeSigningInfo,
+    });
+    return raw == null ? null : MacosAppInfo.fromMap(Map<String, Object?>.from(raw));
   }
 
   /// Looks up bundle IDs and absolute app paths in one native request.
@@ -169,4 +153,13 @@ abstract final class FlutterDeviceAppsMacos {
     });
     return _decodeApps(raw);
   }
+
+  /// Gets a 64×64 PNG icon for a bundle ID or an absolute app path.
+  ///
+  /// Supply exactly one target, using the lookup rules of [getApp].
+  /// Returns null if the app is unavailable or the icon cannot be encoded.
+  /// Invalid targets throw [ArgumentError]. Unexpected native failures throw
+  /// a [PlatformException] with `ERR_GET_ICON`.
+  static Future<Uint8List?> getAppIcon({String? bundleIdentifier, String? appPath}) async =>
+      _mch.invokeMethod<Uint8List>('getAppIcon', _lookupArguments(bundleIdentifier, appPath));
 }
