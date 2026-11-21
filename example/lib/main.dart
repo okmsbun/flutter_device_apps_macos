@@ -1,5 +1,5 @@
-import 'package:flutter/material.dart';
 import 'package:flutter_device_apps_macos/flutter_device_apps_macos.dart';
+import 'package:material_ui/material_ui.dart';
 
 import 'get_app_dialog.dart';
 
