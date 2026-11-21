@@ -90,7 +90,7 @@ class _MacosPluginExampleState extends State<MacosPluginExample> {
               context: context,
               builder: (_) => const DefaultAppForFileDialog(),
             ),
-            tooltip: 'Default app for a file',
+            tooltip: 'Open with',
             icon: const Icon(Icons.insert_drive_file_outlined),
           ),
           IconButton(

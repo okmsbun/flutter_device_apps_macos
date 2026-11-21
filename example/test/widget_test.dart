@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/services.dart';
@@ -7,6 +8,9 @@ import 'package:material_ui/material_ui.dart';
 
 void main() {
   const channel = MethodChannel('flutter_device_apps_macos/methods');
+  const filePicker = MethodChannel(
+    'flutter_device_apps_macos_example/file_picker',
+  );
   final calls = <MethodCall>[];
   Object? response;
   Object? getResponse;
@@ -15,11 +19,13 @@ void main() {
   bool fail = false;
   final searchFolders = <Map<String, String>>[];
   Map<String, String>? pickedFolder;
+  Completer<void>? fileOpen;
 
   setUp(() {
     calls.clear();
     searchFolders.clear();
     pickedFolder = null;
+    fileOpen = null;
     fail = false;
     lookupError = null;
     iconResponse = null;
@@ -59,6 +65,18 @@ void main() {
             ];
           }
           if (call.method == 'getDefaultAppForFile') return getResponse;
+          if (call.method == 'listAppsForFile') {
+            return [
+              {
+                'appName': 'Compatible Editor',
+                'appPath': '/Applications/Compatible Editor.app',
+              },
+            ];
+          }
+          if (call.method == 'openFileWithApp') {
+            await fileOpen?.future;
+            return null;
+          }
           if (call.method == 'listAppSearchFolders') return searchFolders;
           if (call.method == 'addAppSearchFolder') {
             final folder = pickedFolder;
@@ -111,6 +129,8 @@ void main() {
   tearDown(() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, null);
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(filePicker, null);
   });
 
   testWidgets('shows running apps and the default app for a file', (
@@ -134,17 +154,76 @@ void main() {
     await tester.pumpAndSettle();
 
     const path = '/Users/test/Document.pdf';
-    await tester.tap(find.byTooltip('Default app for a file'));
+    await tester.tap(find.byTooltip('Open with'));
     await tester.pumpAndSettle();
     await tester.enterText(
       find.widgetWithText(TextField, 'Absolute file path'),
       path,
     );
-    await tester.tap(find.text('Find app'));
+    await tester.tap(find.text('Find default app'));
     await tester.pumpAndSettle();
     expect(calls.last.method, 'getDefaultAppForFile');
     expect(calls.last.arguments, {'filePath': path});
-    expect(find.textContaining('Lookup Editor'), findsOneWidget);
+    expect(find.text('Lookup Editor'), findsOneWidget);
+
+    await tester.tap(find.text('List compatible apps'));
+    await tester.pumpAndSettle();
+    expect(calls.last.method, 'listAppsForFile');
+    expect(calls.last.arguments, {'filePath': path});
+    expect(find.text('Compatible Editor'), findsOneWidget);
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+    expect(calls.last.method, 'openFileWithApp');
+    expect(calls.last.arguments, {
+      'filePath': path,
+      'appPath': '/Applications/Compatible Editor.app',
+    });
+    expect(find.text('File opened.'), findsOneWidget);
+  });
+
+  testWidgets('keeps a selected file accessible until opening completes', (
+    tester,
+  ) async {
+    const path = '/Users/test/Desktop/Screenshot.png';
+    const id = 'selected-file';
+    final pickerCalls = <MethodCall>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(filePicker, (call) async {
+          pickerCalls.add(call);
+          return call.method == 'chooseFile' ? {'id': id, 'path': path} : null;
+        });
+    final opening = Completer<void>();
+    fileOpen = opening;
+
+    await tester.pumpWidget(const MaterialApp(home: MacosPluginExample()));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Open with'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Choose file'));
+    await tester.pumpAndSettle();
+    expect(find.text(path), findsOneWidget);
+
+    await tester.tap(find.text('List compatible apps'));
+    await tester.pumpAndSettle();
+    expect(calls.last.arguments, {'filePath': path});
+    await tester.tap(find.text('Open'));
+    await tester.pump();
+    expect(calls.last.arguments, {
+      'filePath': path,
+      'appPath': '/Applications/Compatible Editor.app',
+    });
+
+    await tester.tap(find.text('Close'));
+    await tester.pumpAndSettle();
+    expect(pickerCalls.map((call) => call.method), ['chooseFile']);
+
+    opening.complete();
+    await tester.pumpAndSettle();
+    expect(pickerCalls.map((call) => call.method), [
+      'chooseFile',
+      'releaseFile',
+    ]);
+    expect(pickerCalls.last.arguments, id);
   });
 
   testWidgets('opts into Spotlight and can turn it off again', (tester) async {

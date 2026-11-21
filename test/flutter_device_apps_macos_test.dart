@@ -531,6 +531,48 @@ void main() {
     },
   );
 
+  test(
+    'lists file handlers and opens the file with an exact app path',
+    () async {
+      const filePath = '/Users/test/My Document.pdf';
+      const appPath = '/Applications/Reader Copy.app';
+      response = [
+        {'appName': 'Reader', 'appPath': appPath},
+      ];
+      final apps = await FlutterDeviceAppsMacos.listAppsForFile(
+        filePath: filePath,
+      );
+      expect(apps.single.appPath, appPath);
+      expect(calls.single.method, 'listAppsForFile');
+      expect(calls.single.arguments, {'filePath': filePath});
+
+      response = null;
+      await FlutterDeviceAppsMacos.openFileWithApp(
+        filePath: filePath,
+        appPath: appPath,
+      );
+      expect(calls.last.method, 'openFileWithApp');
+      expect(calls.last.arguments, {'filePath': filePath, 'appPath': appPath});
+      expect(
+        await FlutterDeviceAppsMacos.listAppsForFile(filePath: filePath),
+        isEmpty,
+      );
+
+      await expectLater(
+        FlutterDeviceAppsMacos.openFileWithApp(
+          filePath: filePath,
+          appPath: 'Reader.app',
+        ),
+        throwsArgumentError,
+      );
+      await expectLater(
+        FlutterDeviceAppsMacos.listAppsForFile(filePath: 'My Document.pdf'),
+        throwsArgumentError,
+      );
+      expect(calls, hasLength(3));
+    },
+  );
+
   group('app search folders', () {
     test('adds, lists, and removes folders by their stable IDs', () async {
       const folder = {'id': 'folder-id', 'path': '/Volumes/Work/Apps'};

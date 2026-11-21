@@ -18,6 +18,8 @@ public class FlutterDeviceAppsMacosPlugin: NSObject, FlutterPlugin {
   private let searchFolders: AppSearchFolders
   private let searchSpotlight: (@escaping ([URL]) -> Void) -> Void
   private let defaultAppForFile: (URL) -> URL?
+  private let appsForFile: (URL) -> [URL]
+  private let openFile: (URL, URL, @escaping (Error?) -> Void) -> Void
   private let worker = DispatchQueue(label: "flutter_device_apps_macos/scan", qos: .userInitiated)
   private let openApplication: (URL, @escaping (Error?) -> Void) -> Void
   private let revealApplication: (URL) -> Void
@@ -32,6 +34,12 @@ public class FlutterDeviceAppsMacosPlugin: NSObject, FlutterPlugin {
     searchFolders: AppSearchFolders = AppSearchFolders(),
     searchSpotlight: @escaping (@escaping ([URL]) -> Void) -> Void = SpotlightAppSearch.search,
     defaultAppForFile: @escaping (URL) -> URL? = { NSWorkspace.shared.urlForApplication(toOpen: $0) },
+    appsForFile: @escaping (URL) -> [URL] = { NSWorkspace.shared.urlsForApplications(toOpen: $0) },
+    openFile: @escaping (URL, URL, @escaping (Error?) -> Void) -> Void = { file, app, finish in
+      NSWorkspace.shared.open([file], withApplicationAt: app, configuration: .init()) { runningApp, error in
+        finish(error ?? (runningApp == nil ? AppActionError.launchFailed : nil))
+      }
+    },
     openApplication: @escaping (URL, @escaping (Error?) -> Void) -> Void = { url, finish in
       NSWorkspace.shared.openApplication(at: url, configuration: .init()) { app, error in
         finish(error ?? (app == nil ? AppActionError.launchFailed : nil))
@@ -46,6 +54,8 @@ public class FlutterDeviceAppsMacosPlugin: NSObject, FlutterPlugin {
     self.searchFolders = searchFolders
     self.searchSpotlight = searchSpotlight
     self.defaultAppForFile = defaultAppForFile
+    self.appsForFile = appsForFile
+    self.openFile = openFile
     self.openApplication = openApplication
     self.revealApplication = revealApplication
     self.trashApplication = trashApplication
@@ -84,13 +94,27 @@ public class FlutterDeviceAppsMacosPlugin: NSObject, FlutterPlugin {
         }
       case "getDefaultAppForFile":
         let arguments = try AppMethodArguments(call.arguments, method: call.method)
-        guard let path = try arguments.string("filePath"), path.hasPrefix("/"), !path.contains("\0") else {
-          throw AppScanError.invalidArgument("filePath must be an absolute filesystem path")
-        }
+        let path = try arguments.absolutePath("filePath")
         performQuery(errorCode: "ERR_DEFAULT_APP", result: result) { _ in
           guard let url = self.defaultAppForFile(URL(fileURLWithPath: path)),
                 url.isFileURL else { return nil }
           return try self.scanner.getApp(target: .appPath(url.path), options: AppListOptions())
+        }
+      case "listAppsForFile":
+        let arguments = try AppMethodArguments(call.arguments, method: call.method)
+        let path = try arguments.absolutePath("filePath")
+        performQuery(errorCode: "ERR_FILE_HANDLERS", result: result) { _ in
+          let targets = self.appsForFile(URL(fileURLWithPath: path))
+            .filter(\.isFileURL)
+            .map { AppLookupTarget.appPath($0.path) }
+          return try self.scanner.getApps(targets: targets, options: AppListOptions())
+        }
+      case "openFileWithApp":
+        let arguments = try AppMethodArguments(call.arguments, method: call.method)
+        let path = try arguments.absolutePath("filePath")
+        let target = try AppLookupTarget.appPath(arguments.absolutePath("appPath"))
+        performAppAction(target, errorCode: "ERR_OPEN_FILE", result: result) { app, finish in
+          self.openFile(URL(fileURLWithPath: path), app, finish)
         }
       case "addAppSearchFolder":
         addAppSearchFolder(result: result)

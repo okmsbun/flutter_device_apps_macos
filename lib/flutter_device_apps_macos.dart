@@ -143,18 +143,53 @@ abstract final class FlutterDeviceAppsMacos {
   static Future<MacosAppInfo?> getDefaultAppForFile({
     required String filePath,
   }) async {
-    if (!filePath.startsWith('/') || filePath.contains('\u0000')) {
-      throw ArgumentError.value(
-        filePath,
-        'filePath',
-        'Use an absolute file path.',
-      );
-    }
     final map = await _mch.invokeMapMethod<String, Object?>(
       'getDefaultAppForFile',
-      {'filePath': filePath},
+      {'filePath': _absolutePath(filePath, 'filePath')},
     );
     return map == null ? null : MacosAppInfo.fromMap(map);
+  }
+
+  /// Lists accessible applications that macOS associates with an existing file.
+  ///
+  /// Supply an absolute [filePath]. Returns an empty list when the file is
+  /// unavailable or no handlers can be read. Invalid paths throw [ArgumentError].
+  static Future<List<MacosAppInfo>> listAppsForFile({
+    required String filePath,
+  }) async {
+    final apps = await _mch.invokeListMethod<dynamic>('listAppsForFile', {
+      'filePath': _absolutePath(filePath, 'filePath'),
+    });
+    return _decodeApps(apps);
+  }
+
+  /// Opens a file in the selected app bundle.
+  ///
+  /// Supply absolute paths for both [filePath] and [appPath]. Invalid paths
+  /// throw [ArgumentError]. The future completes after macOS reports the result.
+  /// In a sandboxed app, keep any user-granted file access active until the
+  /// future completes.
+  /// A [PlatformException] reports `APP_UNAVAILABLE` for an unavailable app
+  /// or `ERR_OPEN_FILE` for a native open failure.
+  static Future<void> openFileWithApp({
+    required String filePath,
+    required String appPath,
+  }) async {
+    await _mch.invokeMethod<void>('openFileWithApp', {
+      'filePath': _absolutePath(filePath, 'filePath'),
+      'appPath': _absolutePath(appPath, 'appPath'),
+    });
+  }
+
+  static String _absolutePath(String path, String argument) {
+    if (!path.startsWith('/') || path.contains('\u0000')) {
+      throw ArgumentError.value(
+        path,
+        argument,
+        'Use an absolute filesystem path.',
+      );
+    }
+    return path;
   }
 
   /// Opens the macOS folder picker and registers the selected folder for [listApps].

@@ -995,6 +995,60 @@ class RunnerTests: XCTestCase {
     XCTAssertEqual(restricted.directoryReadCount, 0)
   }
 
+  func testFileHandlersReuseExactLookupAndWaitForNativeOpen() throws {
+    let document = root.appendingPathComponent("My Document.pdf")
+    try Data().write(to: document)
+    let initial = try app("PDF Reader.app", bundleIdentifier: "com.example.reader")
+    let copy = try app("PDF Reader Copy.app", in: root, bundleIdentifier: "com.example.reader")
+    let alias = root.appendingPathComponent("Alias.app")
+    try fm.createSymbolicLink(at: alias, withDestinationURL: copy)
+    let missing = root.appendingPathComponent("Missing.app")
+    let restricted = DirectoryReadDenyingFileManager(denied: [userApps, systemApps])
+    var didOpenFile = false
+    let denied = NSError(domain: NSCocoaErrorDomain, code: NSFileReadNoPermissionError)
+    let plugin = FlutterDeviceAppsMacosPlugin(
+      scanner: MacosAppScanner(searchDirectories: directories, fileManager: restricted),
+      appsForFile: { url in
+        url.path == document.path ? [copy, alias, initial, missing] : []
+      },
+      openFile: { file, app, finish in
+        XCTAssertEqual(app.path, copy.resolvingSymlinksInPath().path)
+        DispatchQueue.main.async {
+          didOpenFile = true
+          finish(file.path == document.path ? nil : denied)
+        }
+      }
+    )
+    let listed = expectation(description: "file handlers")
+    plugin.handle(FlutterMethodCall(
+      methodName: "listAppsForFile", arguments: ["filePath": document.path]
+    )) { result in
+      let apps = result as? [[String: Any]]
+      XCTAssertEqual(apps?.compactMap { $0["appName"] as? String }, ["PDF Reader Copy", "PDF Reader"])
+      listed.fulfill()
+    }
+    let opened = expectation(description: "file opened")
+    plugin.handle(FlutterMethodCall(
+      methodName: "openFileWithApp", arguments: ["filePath": document.path, "appPath": alias.path]
+    )) { result in
+      XCTAssertTrue(Thread.isMainThread)
+      XCTAssertTrue(didOpenFile)
+      XCTAssertNil(result)
+      opened.fulfill()
+    }
+    let failed = expectation(description: "native error returned")
+    plugin.handle(FlutterMethodCall(
+      methodName: "openFileWithApp", arguments: ["filePath": missing.path, "appPath": copy.path]
+    )) { result in
+      let error = result as? FlutterError
+      XCTAssertEqual(error?.code, "ERR_OPEN_FILE")
+      XCTAssertEqual((error?.details as? [String: Any])?["code"] as? Int, denied.code)
+      failed.fulfill()
+    }
+    waitForExpectations(timeout: 10)
+    XCTAssertEqual(restricted.directoryReadCount, 0)
+  }
+
   func testSpotlightOptInMergesValidCandidatesUsingTheListFilters() throws {
     let id = "com.example.editor"
     let scanned = try app("Scanned.app", bundleIdentifier: id)

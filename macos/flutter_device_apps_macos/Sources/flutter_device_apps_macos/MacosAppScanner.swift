@@ -40,6 +40,13 @@ struct AppMethodArguments {
     )
   }
 
+  func absolutePath(_ key: String) throws -> String {
+    guard let path = try string(key), path.hasPrefix("/"), !path.contains("\0") else {
+      throw AppScanError.invalidArgument("\(key) must be an absolute filesystem path")
+    }
+    return path
+  }
+
   func lookupOptions(iconKey: String) throws -> AppListOptions {
     try AppListOptions(
       includeSystem: true, onlyLaunchable: false,
