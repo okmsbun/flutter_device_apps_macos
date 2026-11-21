@@ -690,10 +690,22 @@ void main() {
       'decodes known framework markers and preserves unavailable results',
       () async {
         const path = '/Applications/Editor Copy.app';
-        response = ['flutter', 'qt', 'futureFramework', 'flutter'];
+        response = [
+          'flutter',
+          'qt',
+          'unity',
+          'javaRuntime',
+          'futureFramework',
+          'flutter',
+        ];
         expect(
           await FlutterDeviceAppsMacos.detectAppFrameworks(appPath: path),
-          [MacosAppFramework.flutter, MacosAppFramework.qt],
+          [
+            MacosAppFramework.flutter,
+            MacosAppFramework.qt,
+            MacosAppFramework.unity,
+            MacosAppFramework.javaRuntime,
+          ],
         );
         expect(calls.single.method, 'detectAppFrameworks');
         expect(calls.single.arguments, {

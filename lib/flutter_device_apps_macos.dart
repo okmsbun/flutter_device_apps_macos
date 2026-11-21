@@ -26,6 +26,12 @@ enum MacosAppFramework {
 
   /// The Qt Core framework.
   qt,
+
+  /// The Unity player library.
+  unity,
+
+  /// A Java virtual machine packaged with the application.
+  javaRuntime,
 }
 
 /// Discovers, inspects, and manages macOS app bundles.

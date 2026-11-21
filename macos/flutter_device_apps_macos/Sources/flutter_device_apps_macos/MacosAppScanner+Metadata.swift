@@ -6,12 +6,17 @@ extension MacosAppScanner {
   func detectAppFrameworks(target: AppLookupTarget) throws -> [String]? {
     guard let (app, _) = try resolveApp(target: target) else { return nil }
     let indicators = [
-      ("flutter", "FlutterMacOS.framework/FlutterMacOS"),
-      ("electron", "Electron Framework.framework/Electron Framework"),
-      ("qt", "QtCore.framework/QtCore"),
+      ("flutter", ["Contents/Frameworks/FlutterMacOS.framework/FlutterMacOS"]),
+      ("electron", ["Contents/Frameworks/Electron Framework.framework/Electron Framework"]),
+      ("qt", ["Contents/Frameworks/QtCore.framework/QtCore"]),
+      ("unity", ["Contents/Frameworks/UnityPlayer.dylib"]),
+      ("javaRuntime", [
+        "Contents/runtime/Contents/Home/lib/server/libjvm.dylib",
+        "Contents/jbr/Contents/Home/lib/server/libjvm.dylib",
+      ]),
     ]
-    return indicators.compactMap { name, path in
-      hasBundleFile("Contents/Frameworks/" + path, in: app) ? name : nil
+    return indicators.compactMap { name, paths in
+      paths.contains { hasBundleFile($0, in: app) } ? name : nil
     }
   }
 

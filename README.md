@@ -17,7 +17,7 @@ Requires macOS 12+, Flutter 3.44+, and Dart 3.12+.
 Swift Package Manager and CocoaPods are supported.
 
 [API reference](https://pub.dev/documentation/flutter_device_apps_macos/latest/flutter_device_apps_macos/)
-· [Guide: macOS API capabilities](doc/api-capabilities.md)
+· [Guide: List installed macOS apps in Flutter](doc/api-capabilities.md)
 
 ## Main package
 
@@ -83,8 +83,8 @@ final frameworks = await FlutterDeviceAppsMacos.detectAppFrameworks(
 );
 ```
 
-Detects packaged indicators for **Flutter, Electron, and Qt**. Matches describe
-packaged components. An empty list means the scan found no supported indicator.
+Detects packaged indicators for **Flutter, Electron, Qt, Unity, and Java Runtime**.
+Matches describe packaged components. An empty list means the scan found no supported indicator.
 An unavailable app returns `null`.
 
 ### List running apps

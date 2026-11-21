@@ -686,9 +686,13 @@ class RunnerTests: XCTestCase {
     for file in [
       flutterRoot.appendingPathComponent("Versions/A/FlutterMacOS"),
       preferred.appendingPathComponent("Contents/Frameworks/QtCore.framework/QtCore"),
+      preferred.appendingPathComponent("Contents/Frameworks/UnityPlayer.dylib"),
+      preferred.appendingPathComponent("Contents/runtime/Contents/Home/lib/server/libjvm.dylib"),
       preferred.appendingPathComponent("Contents/_MASReceipt/receipt"),
       copy.appendingPathComponent("Contents/Frameworks/Electron Framework.framework/Electron Framework"),
+      copy.appendingPathComponent("Contents/jbr/Contents/Home/lib/server/libjvm.dylib"),
       plain.appendingPathComponent("Contents/PlugIns/Helper.app/Contents/Frameworks/QtCore.framework/QtCore"),
+      plain.appendingPathComponent("Contents/Frameworks/libjvm.dylib"),
     ] {
       try fm.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
       try Data("fixture".utf8).write(to: file)
@@ -709,8 +713,8 @@ class RunnerTests: XCTestCase {
     )
     let plugin = FlutterDeviceAppsMacosPlugin(scanner: scanner)
     let frameworkChecks: [([String: String], [String]?)] = [
-      (["bundleIdentifier": "com.example.app"], ["flutter", "qt"]),
-      (["appPath": copy.path], ["electron"]),
+      (["bundleIdentifier": "com.example.app"], ["flutter", "qt", "unity", "javaRuntime"]),
+      (["appPath": copy.path], ["electron", "javaRuntime"]),
       (["appPath": plain.path], []),
       (["appPath": missing.path], nil),
     ]
