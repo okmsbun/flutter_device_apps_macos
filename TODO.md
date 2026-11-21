@@ -24,6 +24,7 @@ Use bundle identifiers, app paths, and macOS metadata throughout the API.
 - [x] `moveAppToTrash`: move the resolved bundle path to Trash with confirmation in the example.
 - [x] `detectAppFrameworks`: report Flutter, Electron, and Qt bundle indicators.
 - [x] `getInstallSourceInfo`: report App Store receipt and web-download indicators with an unknown fallback.
+- [x] `getDeclaredCapabilities`: read usage descriptions and embedded entitlements.
 - [x] Example with filters, icons, refresh, empty results, and errors.
 - [x] Dart, widget, and native fixture tests; sandbox discovery smoke check.
 - [x] GitHub Actions for quality checks, Dart/widget tests, and native macOS tests.
@@ -33,8 +34,6 @@ Use bundle identifiers, app paths, and macOS metadata throughout the API.
 
 - [ ] `appChanges`: watch accessible discovery locations, reconcile snapshots,
       and document missed/coalesced events and stream lifecycle.
-- [ ] `getDeclaredCapabilities`: read usage descriptions and entitlements;
-      do not report them as another app's actual TCC grants.
 
 ## Later
 

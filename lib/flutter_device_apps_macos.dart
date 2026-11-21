@@ -3,9 +3,11 @@ library;
 
 import 'package:flutter/services.dart';
 
+import 'macos_app_declared_capabilities.dart';
 import 'macos_app_info.dart';
 import 'macos_app_install_source_info.dart';
 
+export 'macos_app_declared_capabilities.dart' show MacosAppDeclaredCapabilities;
 export 'macos_app_info.dart' show MacosAppInfo;
 export 'macos_app_install_source_info.dart'
     show MacosAppInstallSource, MacosAppInstallSourceInfo;
@@ -274,6 +276,24 @@ abstract final class FlutterDeviceAppsMacos {
       _lookupArguments(bundleIdentifier, appPath),
     );
     return map == null ? null : MacosAppInstallSourceInfo.fromMap(map);
+  }
+
+  /// Reads the selected app's usage descriptions and embedded entitlements.
+  ///
+  /// Supply exactly one target using the lookup rules of [getApp]. Returns null
+  /// for an unavailable app. The result describes bundle metadata, while
+  /// macOS manages runtime privacy grants separately.
+  /// Invalid targets throw [ArgumentError]. Unexpected native lookup failures
+  /// throw a [PlatformException] with `ERR_CAPABILITIES`.
+  static Future<MacosAppDeclaredCapabilities?> getDeclaredCapabilities({
+    String? bundleIdentifier,
+    String? appPath,
+  }) async {
+    final map = await _mch.invokeMapMethod<String, Object?>(
+      'getDeclaredCapabilities',
+      _lookupArguments(bundleIdentifier, appPath),
+    );
+    return map == null ? null : MacosAppDeclaredCapabilities.fromMap(map);
   }
 
   /// Opens the selected app and waits for macOS to report the launch result.

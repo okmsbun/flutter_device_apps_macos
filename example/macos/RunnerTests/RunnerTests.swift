@@ -640,6 +640,43 @@ class RunnerTests: XCTestCase {
     XCTAssertEqual(restricted.directoryReadCount, 0)
   }
 
+  func testDeclaredCapabilitiesPreserveUsageDescriptionsWithoutASignature() throws {
+    let camera = try app("Camera.app", bundleIdentifier: "com.example.camera", extra: [
+      "NSCameraUsageDescription": "Capture a photo",
+      "NSMicrophoneUsageDescription": 42,
+      "CFBundleDisplayName": "Camera",
+    ])
+    let restricted = DirectoryReadDenyingFileManager(denied: [userApps, systemApps])
+    let scanner = MacosAppScanner(
+      searchDirectories: directories, fileManager: restricted,
+      applicationResolver: { $0 == "com.example.camera" ? camera : nil }
+    )
+    let plugin = FlutterDeviceAppsMacosPlugin(scanner: scanner)
+    let read = expectation(description: "declared capabilities")
+    let call = FlutterMethodCall(
+      methodName: "getDeclaredCapabilities", arguments: ["bundleIdentifier": "com.example.camera"]
+    )
+    plugin.handle(call) { response in
+      XCTAssertTrue(Thread.isMainThread)
+      let result = response as? [String: Any]
+      XCTAssertEqual(result?["usageDescriptions"] as? [String: String], [
+        "NSCameraUsageDescription": "Capture a photo",
+      ])
+      XCTAssertNil(result?["entitlements"])
+      read.fulfill()
+    }
+    waitForExpectations(timeout: 10)
+    XCTAssertEqual(restricted.directoryReadCount, 0)
+    XCTAssertNil(try scanner.getDeclaredCapabilities(target: .bundleIdentifier("com.example.missing")))
+  }
+
+  func testDeclaredCapabilitiesReadTheHostsEmbeddedEntitlements() throws {
+    let target = AppLookupTarget.appPath(Bundle.main.bundleURL.path)
+    let result = try XCTUnwrap(MacosAppScanner().getDeclaredCapabilities(target: target))
+    let entitlements = try XCTUnwrap(result["entitlements"] as? [String: Any])
+    XCTAssertEqual(entitlements["com.apple.security.app-sandbox"] as? Bool, true)
+  }
+
   func testAppInspectionReadsOnlySupportedMarkersInTheResolvedBundle() throws {
     let preferred = try app("Preferred.app")
     let copy = try app("Copy.app")

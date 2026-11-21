@@ -122,6 +122,25 @@ class _GetAppDialogState extends State<GetAppDialog> {
     ].join('\n');
   }
 
+  String _describeCapabilities(MacosAppDeclaredCapabilities? capabilities) {
+    if (capabilities == null) return 'App not found or inaccessible.';
+
+    List<String> describe(Map<String, Object?>? fields) {
+      if (fields == null) return ['Unavailable'];
+      if (fields.isEmpty) return ['None'];
+      final keys = fields.keys.toList()..sort();
+      return [for (final key in keys) '$key: ${fields[key]}'];
+    }
+
+    return [
+      'Usage descriptions',
+      ...describe(capabilities.usageDescriptions),
+      '',
+      'Entitlements',
+      ...describe(capabilities.entitlements),
+    ].join('\n');
+  }
+
   Future<void> _confirmTrash(String path) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -260,6 +279,13 @@ class _GetAppDialogState extends State<GetAppDialog> {
                     _describeInstallSource,
                   ),
                   child: const Text('Install source'),
+                ),
+                TextButton(
+                  onPressed: () => _inspectApp(
+                    FlutterDeviceAppsMacos.getDeclaredCapabilities,
+                    _describeCapabilities,
+                  ),
+                  child: const Text('Capabilities'),
                 ),
               ],
             ),

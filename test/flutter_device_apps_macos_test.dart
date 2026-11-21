@@ -465,6 +465,82 @@ void main() {
 
   group('app inspection', () {
     test(
+      'decodes declared capabilities and preserves nested entitlement values',
+      () async {
+        const bundle = 'com.example.camera';
+        const camera = 'NSCameraUsageDescription';
+        response = {
+          'usageDescriptions': {camera: 'Capture a photo'},
+          'entitlements': {
+            'com.apple.security.device.camera': true,
+            'example.array': ['com.example.service'],
+            'example.dictionary': {'active': false},
+            'example.data': Uint8List.fromList([1, 2]),
+          },
+        };
+        final capabilities =
+            (await FlutterDeviceAppsMacos.getDeclaredCapabilities(
+              bundleIdentifier: bundle,
+            ))!;
+
+        expect(calls.single.method, 'getDeclaredCapabilities');
+        expect(calls.single.arguments, {
+          'bundleIdentifier': bundle,
+          'appPath': null,
+        });
+        expect(capabilities.usageDescriptions, {camera: 'Capture a photo'});
+        final entitlements = capabilities.entitlements!;
+        expect(entitlements['com.apple.security.device.camera'], isTrue);
+        final list = entitlements['example.array'] as List<Object?>;
+        final dictionary =
+            entitlements['example.dictionary'] as Map<String, Object?>;
+        final bytes = entitlements['example.data'] as Uint8List;
+        expect(list, ['com.example.service']);
+        expect(dictionary, {'active': false});
+        expect(bytes, [1, 2]);
+        expect(capabilities.usageDescriptions.clear, throwsUnsupportedError);
+        expect(entitlements.clear, throwsUnsupportedError);
+        expect(list.clear, throwsUnsupportedError);
+        expect(dictionary.clear, throwsUnsupportedError);
+        expect(() => bytes[0] = 3, throwsUnsupportedError);
+      },
+    );
+
+    test(
+      'distinguishes unavailable app, unavailable entitlements, and empty entitlements',
+      () async {
+        const path = '/Applications/Camera.app';
+        response = null;
+        expect(
+          await FlutterDeviceAppsMacos.getDeclaredCapabilities(appPath: path),
+          isNull,
+        );
+        expect(calls.single.arguments, {
+          'bundleIdentifier': null,
+          'appPath': path,
+        });
+        response = {'usageDescriptions': <String, String>{}};
+        final unsigned = await FlutterDeviceAppsMacos.getDeclaredCapabilities(
+          appPath: path,
+        );
+        expect(unsigned?.usageDescriptions, isEmpty);
+        expect(unsigned?.entitlements, isNull);
+        response = {
+          'usageDescriptions': <String, String>{},
+          'entitlements': <String, Object?>{},
+        };
+        final signed = await FlutterDeviceAppsMacos.getDeclaredCapabilities(
+          appPath: path,
+        );
+        expect(signed?.entitlements, isEmpty);
+        await expectLater(
+          FlutterDeviceAppsMacos.getDeclaredCapabilities(appPath: 'Camera.app'),
+          throwsArgumentError,
+        );
+      },
+    );
+
+    test(
       'decodes known framework markers and preserves unavailable results',
       () async {
         const path = '/Applications/Editor Copy.app';

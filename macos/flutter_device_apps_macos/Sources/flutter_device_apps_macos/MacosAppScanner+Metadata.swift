@@ -1,5 +1,6 @@
 import CoreServices
 import Foundation
+import Security
 
 extension MacosAppScanner {
   func detectAppFrameworks(target: AppLookupTarget) throws -> [String]? {
@@ -19,6 +20,22 @@ extension MacosAppScanner {
     let receipt = hasBundleFile("Contents/_MASReceipt/receipt", in: app)
     let quarantine = try? app.resourceValues(forKeys: [.quarantinePropertiesKey]).quarantineProperties
     return Self.installSourceInfo(hasAppStoreReceipt: receipt, quarantine: quarantine)
+  }
+
+  func getDeclaredCapabilities(target: AppLookupTarget) throws -> [String: Any]? {
+    guard let (app, info) = try resolveApp(target: target) else { return nil }
+    let descriptions = info.filter { $0.key.hasSuffix("UsageDescription") && $0.value is String }
+    var result: [String: Any] = ["usageDescriptions": descriptions]
+
+    if let signing = Self.signingInformation(app, flags: kSecCSRequirementInformation),
+       signing[kSecCodeInfoIdentifier as String] != nil {
+      if let entitlements = signing[kSecCodeInfoEntitlementsDict as String] as? [String: Any] {
+        result["entitlements"] = entitlements
+      } else if signing[kSecCodeInfoEntitlements as String] == nil {
+        result["entitlements"] = [String: Any]()
+      }
+    }
+    return result
   }
 
   static func installSourceInfo(

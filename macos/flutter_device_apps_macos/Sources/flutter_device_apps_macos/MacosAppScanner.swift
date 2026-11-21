@@ -464,17 +464,21 @@ final class MacosAppScanner {
   }
 
   private static func teamIdentifier(_ url: URL) -> String? {
+    guard let fields = signingInformation(url, flags: kSecCSSigningInformation),
+          let team = fields[kSecCodeInfoTeamIdentifier as String] as? String,
+          !team.isEmpty else { return nil }
+    return team
+  }
+
+  static func signingInformation(_ url: URL, flags: UInt32) -> [String: Any]? {
     var code: SecStaticCode?
     guard SecStaticCodeCreateWithPath(url as CFURL, SecCSFlags(), &code) == errSecSuccess,
           let code = code else { return nil }
     var information: CFDictionary?
     guard SecCodeCopySigningInformation(
-      code, SecCSFlags(rawValue: kSecCSSigningInformation), &information
-    ) == errSecSuccess,
-    let fields = information as? [String: Any],
-    let team = fields[kSecCodeInfoTeamIdentifier as String] as? String,
-    !team.isEmpty else { return nil }
-    return team
+      code, SecCSFlags(rawValue: flags), &information
+    ) == errSecSuccess else { return nil }
+    return information as? [String: Any]
   }
 
   private static func pngIcon(_ url: URL) -> Data? {

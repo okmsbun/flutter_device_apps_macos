@@ -61,6 +61,14 @@ void main() {
               'quarantineAgentName': 'Safari',
             };
           }
+          if (call.method == 'getDeclaredCapabilities') {
+            return {
+              'usageDescriptions': {
+                'NSCameraUsageDescription': 'Capture a photo',
+              },
+              'entitlements': {'com.apple.security.device.camera': true},
+            };
+          }
           if ([
             'openApp',
             'revealAppInFinder',
@@ -187,6 +195,35 @@ void main() {
     expect(calls.last.method, 'getInstallSourceInfo');
     expect(
       find.text('Install source: Web download\nQuarantine agent: Safari'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('shows declared usage descriptions and entitlements', (
+    tester,
+  ) async {
+    await tester.pumpWidget(const MaterialApp(home: MacosPluginExample()));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Get app'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('get-app-target')),
+      'com.example.camera',
+    );
+
+    await tester.tap(find.text('Capabilities'));
+    await tester.pumpAndSettle();
+    expect(calls.last.method, 'getDeclaredCapabilities');
+    expect(calls.last.arguments, {
+      'bundleIdentifier': 'com.example.camera',
+      'appPath': null,
+    });
+    expect(
+      find.textContaining('NSCameraUsageDescription: Capture a photo'),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining('com.apple.security.device.camera: true'),
       findsOneWidget,
     );
   });

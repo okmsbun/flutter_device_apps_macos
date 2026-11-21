@@ -94,6 +94,10 @@ public class FlutterDeviceAppsMacosPlugin: NSObject, FlutterPlugin {
         try performLookup(call, errorCode: "ERR_INSTALL_SOURCE", result: result) { target in
           try self.scanner.getInstallSourceInfo(target: target)
         }
+      case "getDeclaredCapabilities":
+        try performLookup(call, errorCode: "ERR_CAPABILITIES", result: result) { target in
+          try self.scanner.getDeclaredCapabilities(target: target)?.mapValues(Self.encodePropertyListValue)
+        }
       case "openApp":
         let target = try AppMethodArguments(call.arguments, method: call.method).lookupTarget()
         performAppAction(target, errorCode: "ERR_OPEN", result: result, action: openApplication)
@@ -127,6 +131,16 @@ public class FlutterDeviceAppsMacosPlugin: NSObject, FlutterPlugin {
       encoded["iconBytes"] = FlutterStandardTypedData(bytes: bytes)
     }
     return encoded
+  }
+
+  private static func encodePropertyListValue(_ value: Any) -> Any {
+    switch value {
+    case let dictionary as [String: Any]: return dictionary.mapValues(encodePropertyListValue)
+    case let array as [Any]: return array.map(encodePropertyListValue)
+    case let data as Data: return FlutterStandardTypedData(bytes: data)
+    case let date as Date: return date.ISO8601Format()
+    default: return value
+    }
   }
 
   private func performLookup(
