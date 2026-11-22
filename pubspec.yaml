@@ -1,6 +1,6 @@
 name: flutter_device_apps_macos
 description: Independent macOS app discovery and management APIs for Flutter.
-version: 1.0.0
+version: 1.1.0
 
 repository: https://github.com/okmsbun/flutter_device_apps_macos
 issue_tracker: https://github.com/okmsbun/flutter_device_apps_macos/issues

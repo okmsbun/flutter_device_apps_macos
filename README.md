@@ -21,8 +21,8 @@ Swift Package Manager and CocoaPods are supported.
 
 ## Main package
 
-`flutter_device_apps` provides a single entry point for Android and macOS APIs
-and uses this plugin on macOS. [Main package](https://pub.dev/packages/flutter_device_apps) · [Main package README](https://github.com/okmsbun/flutter_device_apps#readme)
+`flutter_device_apps` re-exports this plugin for macOS app discovery and
+management. [Main package](https://pub.dev/packages/flutter_device_apps) · [Main package README](https://github.com/okmsbun/flutter_device_apps#readme)
 
 ## Usage
 
