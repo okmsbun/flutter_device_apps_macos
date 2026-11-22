@@ -9,7 +9,7 @@
 </p>
 
 A Flutter plugin to list installed macOS apps, get app icons, check installation
-status, launch apps, and find file handlers. Also detects packaged frameworks.
+status, launch apps, and find file handlers. Also detects packaged app technologies.
 
 ## Requirements
 
@@ -75,17 +75,34 @@ A bundle ID selects the preferred copy. An absolute path selects a specific copy
 in input order and deduplicates by resolved path. It returns `[]` when no apps
 are found.
 
-### Detect packaged app frameworks
+### Detect packaged app technologies
 
 ```dart
-final frameworks = await FlutterDeviceAppsMacos.detectAppFrameworks(
+final technologies = await FlutterDeviceAppsMacos.detectAppTechnologies(
   bundleIdentifier: 'com.example.editor',
 );
+final engines = technologies?.gameEngines;
 ```
 
-Detects packaged indicators for **Flutter, Electron, Qt, Unity, and Java Runtime**.
-Matches describe packaged components. An empty list means the scan found no supported indicator.
-An unavailable app returns `null`.
+Matches describe packaged components and can appear in more than one category.
+An unavailable app returns `null`. Empty lists indicate that the scan found
+no supported markers for those categories.
+
+| Category | Supported technologies |
+| --- | --- |
+| `frameworks` | Flutter, Electron, Qt, Chromium Embedded Framework |
+| `programmingLanguages` | Dart, from a bundled Kernel header |
+| `uiToolkits` | Flutter, Qt Widgets, Qt Quick |
+| `gameEngines` | Unity, Godot |
+| `runtimes` | Electron, Java Runtime |
+| `libraries` | Qt Core, Qt Widgets, Qt Quick, Chromium Embedded Framework |
+
+Godot matches the PCK header in the bundle resource named after its executable.
+Dart matches a Kernel header in the Flutter assets. A bundled Flutter engine
+can also appear independently of a language match.
+
+`detectAppFrameworks()` and `MacosAppFramework` remain available as deprecated APIs
+with their original flat results.
 
 ### List running apps
 

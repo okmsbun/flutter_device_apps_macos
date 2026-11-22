@@ -94,19 +94,37 @@ class _GetAppDialogState extends State<GetAppDialog> {
     );
   }
 
-  String _describeFrameworks(List<MacosAppFramework>? frameworks) {
-    if (frameworks == null) return 'App not found or inaccessible.';
-    if (frameworks.isEmpty) return 'No supported framework indicators found.';
-    final names = frameworks.map(
-      (framework) => switch (framework) {
-        MacosAppFramework.flutter => 'Flutter',
-        MacosAppFramework.electron => 'Electron',
-        MacosAppFramework.qt => 'Qt',
-        MacosAppFramework.unity => 'Unity',
-        MacosAppFramework.javaRuntime => 'Java Runtime',
-      },
-    );
-    return 'Packaged frameworks: ${names.join(', ')}';
+  String _describeTechnologies(MacosAppTechnologies? technologies) {
+    if (technologies == null) return 'App not found or inaccessible.';
+    String name(MacosAppTechnology technology) => switch (technology) {
+      MacosAppTechnology.flutter => 'Flutter',
+      MacosAppTechnology.electron => 'Electron',
+      MacosAppTechnology.qt => 'Qt Core',
+      MacosAppTechnology.unity => 'Unity',
+      MacosAppTechnology.javaRuntime => 'Java Runtime',
+      MacosAppTechnology.qtWidgets => 'Qt Widgets',
+      MacosAppTechnology.qtQuick => 'Qt Quick',
+      MacosAppTechnology.chromiumEmbeddedFramework =>
+        'Chromium Embedded Framework',
+      MacosAppTechnology.godot => 'Godot',
+      MacosAppTechnology.dart => 'Dart',
+    };
+    final categories = {
+      'Frameworks': technologies.frameworks,
+      'Programming languages': technologies.programmingLanguages,
+      'UI toolkits': technologies.uiToolkits,
+      'Game engines': technologies.gameEngines,
+      'Runtimes': technologies.runtimes,
+      'Libraries': technologies.libraries,
+    };
+    final rows = [
+      for (final category in categories.entries)
+        if (category.value.isNotEmpty)
+          '${category.key}: ${category.value.map(name).join(', ')}',
+    ];
+    return rows.isEmpty
+        ? 'No supported technology indicators found.'
+        : rows.join('\n');
   }
 
   String _describeInstallSource(MacosAppInstallSourceInfo? info) {
@@ -270,10 +288,10 @@ class _GetAppDialogState extends State<GetAppDialog> {
                 ),
                 TextButton(
                   onPressed: () => _inspectApp(
-                    FlutterDeviceAppsMacos.detectAppFrameworks,
-                    _describeFrameworks,
+                    FlutterDeviceAppsMacos.detectAppTechnologies,
+                    _describeTechnologies,
                   ),
-                  child: const Text('Frameworks'),
+                  child: const Text('Technologies'),
                 ),
                 TextButton(
                   onPressed: () => _inspectApp(

@@ -687,44 +687,124 @@ void main() {
     );
 
     test(
-      'decodes known framework markers and preserves unavailable results',
+      'groups known technologies and distinguishes empty and unavailable results',
       () async {
         const path = '/Applications/Editor Copy.app';
         response = [
+          'dart',
           'flutter',
+          'electron',
           'qt',
           'unity',
           'javaRuntime',
-          'futureFramework',
+          'qtWidgets',
+          'qtQuick',
+          'chromiumEmbeddedFramework',
+          'godot',
+          'futureTechnology',
           'flutter',
         ];
+        final technologies =
+            (await FlutterDeviceAppsMacos.detectAppTechnologies(
+              appPath: path,
+            ))!;
+        expect(technologies.frameworks, [
+          MacosAppTechnology.flutter,
+          MacosAppTechnology.electron,
+          MacosAppTechnology.qt,
+          MacosAppTechnology.chromiumEmbeddedFramework,
+        ]);
+        expect(technologies.programmingLanguages, [MacosAppTechnology.dart]);
+        expect(technologies.uiToolkits, [
+          MacosAppTechnology.flutter,
+          MacosAppTechnology.qtWidgets,
+          MacosAppTechnology.qtQuick,
+        ]);
+        expect(technologies.gameEngines, [
+          MacosAppTechnology.unity,
+          MacosAppTechnology.godot,
+        ]);
+        expect(technologies.runtimes, [
+          MacosAppTechnology.electron,
+          MacosAppTechnology.javaRuntime,
+        ]);
+        expect(technologies.libraries, [
+          MacosAppTechnology.qt,
+          MacosAppTechnology.qtWidgets,
+          MacosAppTechnology.qtQuick,
+          MacosAppTechnology.chromiumEmbeddedFramework,
+        ]);
         expect(
-          await FlutterDeviceAppsMacos.detectAppFrameworks(appPath: path),
-          [
-            MacosAppFramework.flutter,
-            MacosAppFramework.qt,
-            MacosAppFramework.unity,
-            MacosAppFramework.javaRuntime,
-          ],
+          () => technologies.frameworks.add(MacosAppTechnology.flutter),
+          throwsUnsupportedError,
         );
-        expect(calls.single.method, 'detectAppFrameworks');
+        expect(calls.single.method, 'detectAppTechnologies');
         expect(calls.single.arguments, {
           'bundleIdentifier': null,
           'appPath': path,
         });
 
         response = <String>[];
+        final empty = (await FlutterDeviceAppsMacos.detectAppTechnologies(
+          appPath: path,
+        ))!;
+        expect([
+          empty.frameworks,
+          empty.programmingLanguages,
+          empty.uiToolkits,
+          empty.gameEngines,
+          empty.runtimes,
+          empty.libraries,
+        ], everyElement(isEmpty));
+        response = ['flutter', 'electron', 'javaRuntime'];
         expect(
-          await FlutterDeviceAppsMacos.detectAppFrameworks(appPath: path),
+          (await FlutterDeviceAppsMacos.detectAppTechnologies(
+            appPath: path,
+          ))?.programmingLanguages,
           isEmpty,
         );
         response = null;
         expect(
-          await FlutterDeviceAppsMacos.detectAppFrameworks(appPath: path),
+          await FlutterDeviceAppsMacos.detectAppTechnologies(appPath: path),
           isNull,
+        );
+        await expectLater(
+          FlutterDeviceAppsMacos.detectAppTechnologies(appPath: 'Editor.app'),
+          throwsArgumentError,
         );
       },
     );
+
+    test('keeps the deprecated flat detection API available', () async {
+      const path = '/Applications/Editor Copy.app';
+      Future<List<String>?> lookup() async {
+        // Verify the deprecated entry point used by existing apps.
+        // ignore: deprecated_member_use_from_same_package
+        final frameworks = await FlutterDeviceAppsMacos.detectAppFrameworks(
+          appPath: path,
+        );
+        return frameworks?.map((framework) => framework.name).toList();
+      }
+
+      response = [
+        'flutter',
+        'qt',
+        'unity',
+        'javaRuntime',
+        'futureFramework',
+        'flutter',
+      ];
+      expect(await lookup(), ['flutter', 'qt', 'unity', 'javaRuntime']);
+      expect(calls.single.method, 'detectAppFrameworks');
+      expect(calls.single.arguments, {
+        'bundleIdentifier': null,
+        'appPath': path,
+      });
+      response = <String>[];
+      expect(await lookup(), isEmpty);
+      response = null;
+      expect(await lookup(), isNull);
+    });
 
     test(
       'decodes install source evidence and keeps unknown separate from null',

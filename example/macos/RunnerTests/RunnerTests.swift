@@ -683,9 +683,14 @@ class RunnerTests: XCTestCase {
     let plain = try app("Plain.app")
     let missing = userApps.appendingPathComponent("Missing.app")
     let flutterRoot = preferred.appendingPathComponent("Contents/Frameworks/FlutterMacOS.framework")
+    let kernelPath = "Contents/Frameworks/App.framework/Versions/A/Resources/flutter_assets/kernel_blob.bin"
+    let cefPath = "Contents/Frameworks/Chromium Embedded Framework.framework/Chromium Embedded Framework"
     for file in [
       flutterRoot.appendingPathComponent("Versions/A/FlutterMacOS"),
       preferred.appendingPathComponent("Contents/Frameworks/QtCore.framework/QtCore"),
+      preferred.appendingPathComponent("Contents/Frameworks/QtWidgets.framework/QtWidgets"),
+      preferred.appendingPathComponent("Contents/Frameworks/QtQuick.framework/QtQuick"),
+      preferred.appendingPathComponent(cefPath),
       preferred.appendingPathComponent("Contents/Frameworks/UnityPlayer.dylib"),
       preferred.appendingPathComponent("Contents/runtime/Contents/Home/lib/server/libjvm.dylib"),
       preferred.appendingPathComponent("Contents/_MASReceipt/receipt"),
@@ -697,6 +702,16 @@ class RunnerTests: XCTestCase {
       try fm.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
       try Data("fixture".utf8).write(to: file)
     }
+    for (file, contents) in [
+      (preferred.appendingPathComponent(kernelPath), Data([0x90, 0xAB, 0xCD, 0xEF, 0, 0, 0, 1])),
+      (preferred.appendingPathComponent("Contents/Resources/Executable.pck"), Data([0x47, 0x44, 0x50, 0x43, 3, 0, 0, 0])),
+      (copy.appendingPathComponent("Contents/Resources/DifferentName.pck"), Data([0x47, 0x44, 0x50, 0x43, 3, 0, 0, 0])),
+      (plain.appendingPathComponent(kernelPath), Data([0x90, 0xAB, 0xCD, 0xEF])),
+      (plain.appendingPathComponent("Contents/Resources/Executable.pck"), Data("not a pack".utf8)),
+    ] {
+      try fm.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+      try contents.write(to: file)
+    }
     try fm.createSymbolicLink(
       at: flutterRoot.appendingPathComponent("FlutterMacOS"),
       withDestinationURL: flutterRoot.appendingPathComponent("Versions/A/FlutterMacOS")
@@ -705,6 +720,9 @@ class RunnerTests: XCTestCase {
       at: copy.appendingPathComponent("Contents/Frameworks/FlutterMacOS.framework"),
       withDestinationURL: flutterRoot
     )
+    let outsideCef = plain.appendingPathComponent(cefPath)
+    try fm.createDirectory(at: outsideCef.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try fm.createSymbolicLink(at: outsideCef, withDestinationURL: preferred.appendingPathComponent(cefPath))
 
     let restricted = DirectoryReadDenyingFileManager(denied: [userApps, systemApps])
     let scanner = MacosAppScanner(
@@ -718,16 +736,26 @@ class RunnerTests: XCTestCase {
       (["appPath": plain.path], []),
       (["appPath": missing.path], nil),
     ]
-    for (arguments, expected) in frameworkChecks {
-      let finished = expectation(description: "framework inspection")
-      plugin.handle(FlutterMethodCall(methodName: "detectAppFrameworks", arguments: arguments)) { result in
-        XCTAssertTrue(Thread.isMainThread)
-        if let expected = expected {
-          XCTAssertEqual(result as? [String], expected)
-        } else {
-          XCTAssertNil(result)
+    let technologyChecks: [([String: String], [String]?)] = [
+      (["bundleIdentifier": "com.example.app"], [
+        "flutter", "qt", "unity", "javaRuntime", "qtWidgets", "qtQuick", "chromiumEmbeddedFramework", "godot", "dart",
+      ]),
+      (["appPath": copy.path], ["electron", "javaRuntime"]),
+      (["appPath": plain.path], []),
+      (["appPath": missing.path], nil),
+    ]
+    for (method, checks) in [("detectAppFrameworks", frameworkChecks), ("detectAppTechnologies", technologyChecks)] {
+      for (arguments, expected) in checks {
+        let finished = expectation(description: method)
+        plugin.handle(FlutterMethodCall(methodName: method, arguments: arguments)) { result in
+          XCTAssertTrue(Thread.isMainThread)
+          if let expected = expected {
+            XCTAssertEqual(result as? [String], expected)
+          } else {
+            XCTAssertNil(result)
+          }
+          finished.fulfill()
         }
-        finished.fulfill()
       }
     }
     let sourceChecks: [(URL, String?)] = [

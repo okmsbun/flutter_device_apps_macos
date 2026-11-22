@@ -96,8 +96,16 @@ void main() {
           if (call.method == 'isAppInstalled') return true;
           if (call.method == 'isSystemApp') return null;
           if (call.method == 'isAppLaunchable') return false;
-          if (call.method == 'detectAppFrameworks') {
-            return ['flutter', 'qt', 'unity', 'javaRuntime'];
+          if (call.method == 'detectAppTechnologies') {
+            return [
+              'flutter',
+              'qt',
+              'unity',
+              'javaRuntime',
+              'qtQuick',
+              'godot',
+              'dart',
+            ];
           }
           if (call.method == 'getInstallSourceInfo') {
             return {
@@ -370,7 +378,9 @@ void main() {
     },
   );
 
-  testWidgets('shows framework and install source indicators', (tester) async {
+  testWidgets('shows all technology categories and install source indicators', (
+    tester,
+  ) async {
     await tester.pumpWidget(const MaterialApp(home: MacosPluginExample()));
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Get app'));
@@ -380,11 +390,18 @@ void main() {
       'com.example.editor',
     );
 
-    await tester.tap(find.text('Frameworks'));
+    await tester.tap(find.text('Technologies'));
     await tester.pumpAndSettle();
-    expect(calls.last.method, 'detectAppFrameworks');
+    expect(calls.last.method, 'detectAppTechnologies');
     expect(
-      find.text('Packaged frameworks: Flutter, Qt, Unity, Java Runtime'),
+      find.text(
+        'Frameworks: Flutter, Qt Core\n'
+        'Programming languages: Dart\n'
+        'UI toolkits: Flutter, Qt Quick\n'
+        'Game engines: Unity, Godot\n'
+        'Runtimes: Java Runtime\n'
+        'Libraries: Qt Core, Qt Quick',
+      ),
       findsOneWidget,
     );
 
