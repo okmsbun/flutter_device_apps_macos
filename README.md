@@ -9,7 +9,7 @@
 </p>
 
 A Flutter plugin to list installed macOS apps, get app icons, check installation
-status, launch apps, and find file handlers. Also detects packaged frameworks.
+status, launch apps, and find file handlers. Also detects packaged app technologies.
 
 ## Requirements
 
@@ -21,8 +21,8 @@ Swift Package Manager and CocoaPods are supported.
 
 ## Main package
 
-`flutter_device_apps` provides a single entry point for Android and macOS APIs
-and uses this plugin on macOS. [Main package](https://pub.dev/packages/flutter_device_apps) · [Main package README](https://github.com/okmsbun/flutter_device_apps#readme)
+`flutter_device_apps` re-exports this plugin for macOS app discovery and
+management. [Main package](https://pub.dev/packages/flutter_device_apps) · [Main package README](https://github.com/okmsbun/flutter_device_apps#readme)
 
 ## Usage
 
@@ -75,17 +75,38 @@ A bundle ID selects the preferred copy. An absolute path selects a specific copy
 in input order and deduplicates by resolved path. It returns `[]` when no apps
 are found.
 
-### Detect packaged app frameworks
+### Detect packaged app technologies
 
 ```dart
-final frameworks = await FlutterDeviceAppsMacos.detectAppFrameworks(
+final technologies = await FlutterDeviceAppsMacos.detectAppTechnologies(
   bundleIdentifier: 'com.example.editor',
 );
+final engines = technologies?.gameEngines;
 ```
 
-Detects packaged indicators for **Flutter, Electron, Qt, Unity, and Java Runtime**.
-Matches describe packaged components. An empty list means the scan found no supported indicator.
-An unavailable app returns `null`.
+Matches come from bundle files and the main executable's Mach-O metadata.
+They can appear in more than one category.
+An unavailable app returns `null`. Empty lists indicate that the scan found
+no supported markers for those categories.
+
+| Category | Supported technologies |
+| --- | --- |
+| `frameworks` | Flutter, Electron, Qt, Chromium Embedded Framework, Cocoa, Mac Catalyst, WebKit, Core Data, SwiftData, SceneKit, RealityKit, SpriteKit |
+| `programmingLanguages` | Dart, Swift |
+| `uiToolkits` | Flutter, Qt Widgets, Qt Quick, AppKit, SwiftUI, UIKit, AVKit |
+| `gameEngines` | Unity, Godot, SpriteKit |
+| `runtimes` | Electron, Java Runtime, JavaScriptCore, Python, .NET, Mono |
+| `libraries` | Qt Core, Qt Widgets, Qt Quick, Chromium Embedded Framework, AVKit, libVLC, SDL2, SDL3, Combine, Core ML, Metal, MetalKit, OpenGL, Core Graphics, QuartzCore, AVFoundation, Core Media, Core Audio, Audio Toolbox |
+
+Godot matches the PCK header in the bundle resource named after its executable.
+Dart matches a Flutter Kernel header or AOT snapshot symbols in `App.framework`.
+Swift matches compiler metadata in the executable, and Mac Catalyst matches its
+build platform. The scan reads direct dependency records across Apple Silicon
+and Intel Mach-O slices. Code loaded through a helper or at runtime may be absent
+from those records.
+
+`detectAppFrameworks()` and `MacosAppFramework` remain available as deprecated APIs
+with their original flat results.
 
 ### List running apps
 

@@ -147,12 +147,17 @@ produce `ERR_QUERY`.
 These APIs use the single app lookup rules and return `null` when the app is
 unavailable. They inspect the selected bundle without scanning discovery roots.
 
-- `detectAppFrameworks` checks for Flutter, Electron, Qt, and Unity binaries
-  under `Contents/Frameworks` and for a packaged JVM under `Contents/runtime`
-  or `Contents/jbr`. It returns all matches, or `[]` when no supported indicators
-  are visible.
-  Matches describe packaged components. Helpers and nested bundles are outside
-  the scan scope, and the primary UI framework remains unspecified.
+- `detectAppTechnologies` returns separate lists for frameworks, programming
+  languages, UI toolkits, game engines, runtimes, and libraries. It checks known
+  files under `Contents/Frameworks` and for a bundled JVM under `Contents/runtime`
+  or `Contents/jbr`. Godot checks the header of
+  `Contents/Resources/<CFBundleExecutable>.pck`. Dart checks the Kernel header
+  in bundled Flutter assets or AOT snapshot symbols in `App.framework`.
+  The main executable contributes direct Mach-O dependencies, Swift compiler
+  metadata, and the Mac Catalyst build platform across its 64-bit slices.
+  Empty categories indicate no supported marker. See the
+  [supported technologies](../README.md#detect-packaged-app-technologies).
+  The deprecated `detectAppFrameworks` retains its original flat result.
 - `getInstallSourceInfo` uses the `Contents/_MASReceipt/receipt` file as a
   `macAppStore` indicator. Without that marker, Launch Services web-download
   quarantine metadata yields `webDownload`. Otherwise the source is `unknown`.

@@ -94,19 +94,68 @@ class _GetAppDialogState extends State<GetAppDialog> {
     );
   }
 
-  String _describeFrameworks(List<MacosAppFramework>? frameworks) {
-    if (frameworks == null) return 'App not found or inaccessible.';
-    if (frameworks.isEmpty) return 'No supported framework indicators found.';
-    final names = frameworks.map(
-      (framework) => switch (framework) {
-        MacosAppFramework.flutter => 'Flutter',
-        MacosAppFramework.electron => 'Electron',
-        MacosAppFramework.qt => 'Qt',
-        MacosAppFramework.unity => 'Unity',
-        MacosAppFramework.javaRuntime => 'Java Runtime',
-      },
-    );
-    return 'Packaged frameworks: ${names.join(', ')}';
+  String _describeTechnologies(MacosAppTechnologies? technologies) {
+    if (technologies == null) return 'App not found or inaccessible.';
+    String name(MacosAppTechnology technology) => switch (technology) {
+      MacosAppTechnology.flutter => 'Flutter',
+      MacosAppTechnology.electron => 'Electron',
+      MacosAppTechnology.qt => 'Qt Core',
+      MacosAppTechnology.unity => 'Unity',
+      MacosAppTechnology.javaRuntime => 'Java Runtime',
+      MacosAppTechnology.qtWidgets => 'Qt Widgets',
+      MacosAppTechnology.qtQuick => 'Qt Quick',
+      MacosAppTechnology.chromiumEmbeddedFramework =>
+        'Chromium Embedded Framework',
+      MacosAppTechnology.godot => 'Godot',
+      MacosAppTechnology.dart => 'Dart',
+      MacosAppTechnology.swift => 'Swift',
+      MacosAppTechnology.cocoa => 'Cocoa',
+      MacosAppTechnology.macCatalyst => 'Mac Catalyst',
+      MacosAppTechnology.webKit => 'WebKit',
+      MacosAppTechnology.coreData => 'Core Data',
+      MacosAppTechnology.swiftData => 'SwiftData',
+      MacosAppTechnology.sceneKit => 'SceneKit',
+      MacosAppTechnology.realityKit => 'RealityKit',
+      MacosAppTechnology.appKit => 'AppKit',
+      MacosAppTechnology.swiftUI => 'SwiftUI',
+      MacosAppTechnology.uiKit => 'UIKit',
+      MacosAppTechnology.avKit => 'AVKit',
+      MacosAppTechnology.spriteKit => 'SpriteKit',
+      MacosAppTechnology.javaScriptCore => 'JavaScriptCore',
+      MacosAppTechnology.pythonRuntime => 'Python Runtime',
+      MacosAppTechnology.dotnetRuntime => '.NET Runtime',
+      MacosAppTechnology.monoRuntime => 'Mono Runtime',
+      MacosAppTechnology.libVlc => 'libVLC',
+      MacosAppTechnology.sdl2 => 'SDL2',
+      MacosAppTechnology.sdl3 => 'SDL3',
+      MacosAppTechnology.combine => 'Combine',
+      MacosAppTechnology.coreML => 'Core ML',
+      MacosAppTechnology.metal => 'Metal',
+      MacosAppTechnology.metalKit => 'MetalKit',
+      MacosAppTechnology.openGL => 'OpenGL',
+      MacosAppTechnology.coreGraphics => 'Core Graphics',
+      MacosAppTechnology.quartzCore => 'QuartzCore',
+      MacosAppTechnology.avFoundation => 'AVFoundation',
+      MacosAppTechnology.coreMedia => 'Core Media',
+      MacosAppTechnology.coreAudio => 'Core Audio',
+      MacosAppTechnology.audioToolbox => 'Audio Toolbox',
+    };
+    final categories = {
+      'Frameworks': technologies.frameworks,
+      'Programming languages': technologies.programmingLanguages,
+      'UI toolkits': technologies.uiToolkits,
+      'Game engines': technologies.gameEngines,
+      'Runtimes': technologies.runtimes,
+      'Libraries': technologies.libraries,
+    };
+    final rows = [
+      for (final category in categories.entries)
+        if (category.value.isNotEmpty)
+          '${category.key}: ${category.value.map(name).join(', ')}',
+    ];
+    return rows.isEmpty
+        ? 'No supported technology indicators found.'
+        : rows.join('\n');
   }
 
   String _describeInstallSource(MacosAppInstallSourceInfo? info) {
@@ -270,10 +319,10 @@ class _GetAppDialogState extends State<GetAppDialog> {
                 ),
                 TextButton(
                   onPressed: () => _inspectApp(
-                    FlutterDeviceAppsMacos.detectAppFrameworks,
-                    _describeFrameworks,
+                    FlutterDeviceAppsMacos.detectAppTechnologies,
+                    _describeTechnologies,
                   ),
-                  child: const Text('Frameworks'),
+                  child: const Text('Technologies'),
                 ),
                 TextButton(
                   onPressed: () => _inspectApp(
