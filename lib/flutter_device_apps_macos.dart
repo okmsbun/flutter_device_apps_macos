@@ -7,6 +7,7 @@ import 'macos_app_declared_capabilities.dart';
 import 'macos_app_info.dart';
 import 'macos_app_install_source_info.dart';
 import 'macos_app_search_folder.dart';
+import 'macos_app_technologies.dart';
 import 'macos_running_app_info.dart';
 
 export 'macos_app_declared_capabilities.dart' show MacosAppDeclaredCapabilities;
@@ -14,9 +15,14 @@ export 'macos_app_info.dart' show MacosAppInfo;
 export 'macos_app_install_source_info.dart'
     show MacosAppInstallSource, MacosAppInstallSourceInfo;
 export 'macos_app_search_folder.dart' show MacosAppSearchFolder;
+export 'macos_app_technologies.dart'
+    show MacosAppTechnologies, MacosAppTechnology;
 export 'macos_running_app_info.dart' show MacosRunningAppInfo;
 
 /// Framework components identified by known files in a macOS app bundle.
+@Deprecated(
+  'Use MacosAppTechnology with FlutterDeviceAppsMacos.detectAppTechnologies().',
+)
 enum MacosAppFramework {
   /// The Flutter macOS engine.
   flutter,
@@ -347,7 +353,31 @@ abstract final class FlutterDeviceAppsMacos {
   }) async =>
       await _checkApp('isAppLaunchable', bundleIdentifier, appPath) ?? false;
 
-  /// Identifies supported framework components packaged in a macOS app.
+  /// Identifies supported technologies from bundle files, Mach-O dependencies,
+  /// and compiler metadata in a macOS app.
+  ///
+  /// Supply exactly one target using the lookup rules of [getApp]. Returns null
+  /// for an unavailable app and empty category lists when no markers match.
+  /// Invalid targets throw [ArgumentError]. Unexpected native failures throw a
+  /// [PlatformException] with `ERR_FRAMEWORK_SCAN`.
+  static Future<MacosAppTechnologies?> detectAppTechnologies({
+    String? bundleIdentifier,
+    String? appPath,
+  }) async {
+    final names = await _mch.invokeListMethod<String>(
+      'detectAppTechnologies',
+      _lookupArguments(bundleIdentifier, appPath),
+    );
+    if (names == null) return null;
+    final detected = names.toSet();
+    return MacosAppTechnologies(
+      MacosAppTechnology.values.where(
+        (technology) => detected.contains(technology.name),
+      ),
+    );
+  }
+
+  /// Identifies legacy framework components packaged in a macOS app.
   ///
   /// Supply exactly one target using the lookup rules of [getApp]. Matches are
   /// limited to supported files present in the bundle. Multiple components can
@@ -355,6 +385,7 @@ abstract final class FlutterDeviceAppsMacos {
   /// Returns an empty list when no indicators are found or null when the app
   /// is unavailable. Invalid targets throw [ArgumentError]. Unexpected native
   /// failures throw a [PlatformException] with `ERR_FRAMEWORK_SCAN`.
+  @Deprecated('Use detectAppTechnologies() for categorized results.')
   static Future<List<MacosAppFramework>?> detectAppFrameworks({
     String? bundleIdentifier,
     String? appPath,

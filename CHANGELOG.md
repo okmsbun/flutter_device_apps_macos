@@ -1,3 +1,10 @@
+## 1.1.0
+
+- Added `detectAppTechnologies()` with categorized results. Deprecated `detectAppFrameworks()` and `MacosAppFramework` and kept their original flat results.
+- Added direct Mach-O dependency detection across Apple Silicon and Intel slices, including AppKit, SwiftUI, WebKit, Metal, and libVLC.
+- Added Swift detection from compiler metadata and Dart detection from bundled Kernel and AOT snapshots.
+- Expanded technology detection for Qt Widgets, Qt Quick, Chromium Embedded Framework, Godot, and additional linked libraries and runtimes.
+
 ## 1.0.0
 
 - Added single and batch app lookups by bundle ID or absolute path, standalone PNG icon lookup, and installation, system, and launchability checks.

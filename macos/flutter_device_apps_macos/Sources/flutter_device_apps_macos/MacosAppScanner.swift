@@ -402,7 +402,7 @@ final class MacosAppScanner {
     return info
   }
 
-  private func executableURL(_ url: URL, info: [String: Any]) -> URL? {
+  func executableURL(_ url: URL, info: [String: Any]) -> URL? {
     guard let name = info["CFBundleExecutable"] as? String,
           !name.isEmpty, name != ".", name != "..", !name.contains("/") else { return nil }
     return url.appendingPathComponent("Contents/MacOS", isDirectory: true)
