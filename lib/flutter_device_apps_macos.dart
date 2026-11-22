@@ -353,7 +353,8 @@ abstract final class FlutterDeviceAppsMacos {
   }) async =>
       await _checkApp('isAppLaunchable', bundleIdentifier, appPath) ?? false;
 
-  /// Identifies supported technologies packaged in a macOS app.
+  /// Identifies supported technologies from bundle files, Mach-O dependencies,
+  /// and compiler metadata in a macOS app.
   ///
   /// Supply exactly one target using the lookup rules of [getApp]. Returns null
   /// for an unavailable app and empty category lists when no markers match.

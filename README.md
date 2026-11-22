@@ -84,22 +84,26 @@ final technologies = await FlutterDeviceAppsMacos.detectAppTechnologies(
 final engines = technologies?.gameEngines;
 ```
 
-Matches describe packaged components and can appear in more than one category.
+Matches come from bundle files and the main executable's Mach-O metadata.
+They can appear in more than one category.
 An unavailable app returns `null`. Empty lists indicate that the scan found
 no supported markers for those categories.
 
 | Category | Supported technologies |
 | --- | --- |
-| `frameworks` | Flutter, Electron, Qt, Chromium Embedded Framework |
-| `programmingLanguages` | Dart, from a bundled Kernel header |
-| `uiToolkits` | Flutter, Qt Widgets, Qt Quick |
-| `gameEngines` | Unity, Godot |
-| `runtimes` | Electron, Java Runtime |
-| `libraries` | Qt Core, Qt Widgets, Qt Quick, Chromium Embedded Framework |
+| `frameworks` | Flutter, Electron, Qt, Chromium Embedded Framework, Cocoa, Mac Catalyst, WebKit, Core Data, SwiftData, SceneKit, RealityKit, SpriteKit |
+| `programmingLanguages` | Dart, Swift |
+| `uiToolkits` | Flutter, Qt Widgets, Qt Quick, AppKit, SwiftUI, UIKit, AVKit |
+| `gameEngines` | Unity, Godot, SpriteKit |
+| `runtimes` | Electron, Java Runtime, JavaScriptCore, Python, .NET, Mono |
+| `libraries` | Qt Core, Qt Widgets, Qt Quick, Chromium Embedded Framework, AVKit, libVLC, SDL2, SDL3, Combine, Core ML, Metal, MetalKit, OpenGL, Core Graphics, QuartzCore, AVFoundation, Core Media, Core Audio, Audio Toolbox |
 
 Godot matches the PCK header in the bundle resource named after its executable.
-Dart matches a Kernel header in the Flutter assets. A bundled Flutter engine
-can also appear independently of a language match.
+Dart matches a Flutter Kernel header or AOT snapshot symbols in `App.framework`.
+Swift matches compiler metadata in the executable, and Mac Catalyst matches its
+build platform. The scan reads direct dependency records across Apple Silicon
+and Intel Mach-O slices. Code loaded through a helper or at runtime may be absent
+from those records.
 
 `detectAppFrameworks()` and `MacosAppFramework` remain available as deprecated APIs
 with their original flat results.

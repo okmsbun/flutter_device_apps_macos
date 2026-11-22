@@ -701,6 +701,17 @@ void main() {
           'qtQuick',
           'chromiumEmbeddedFramework',
           'godot',
+          'swift',
+          'macCatalyst',
+          'webKit',
+          'appKit',
+          'swiftUI',
+          'avKit',
+          'spriteKit',
+          'javaScriptCore',
+          'dotnetRuntime',
+          'libVlc',
+          'metal',
           'futureTechnology',
           'flutter',
         ];
@@ -713,26 +724,41 @@ void main() {
           MacosAppTechnology.electron,
           MacosAppTechnology.qt,
           MacosAppTechnology.chromiumEmbeddedFramework,
+          MacosAppTechnology.macCatalyst,
+          MacosAppTechnology.webKit,
+          MacosAppTechnology.spriteKit,
         ]);
-        expect(technologies.programmingLanguages, [MacosAppTechnology.dart]);
+        expect(technologies.programmingLanguages, [
+          MacosAppTechnology.dart,
+          MacosAppTechnology.swift,
+        ]);
         expect(technologies.uiToolkits, [
           MacosAppTechnology.flutter,
           MacosAppTechnology.qtWidgets,
           MacosAppTechnology.qtQuick,
+          MacosAppTechnology.appKit,
+          MacosAppTechnology.swiftUI,
+          MacosAppTechnology.avKit,
         ]);
         expect(technologies.gameEngines, [
           MacosAppTechnology.unity,
           MacosAppTechnology.godot,
+          MacosAppTechnology.spriteKit,
         ]);
         expect(technologies.runtimes, [
           MacosAppTechnology.electron,
           MacosAppTechnology.javaRuntime,
+          MacosAppTechnology.javaScriptCore,
+          MacosAppTechnology.dotnetRuntime,
         ]);
         expect(technologies.libraries, [
           MacosAppTechnology.qt,
           MacosAppTechnology.qtWidgets,
           MacosAppTechnology.qtQuick,
           MacosAppTechnology.chromiumEmbeddedFramework,
+          MacosAppTechnology.avKit,
+          MacosAppTechnology.libVlc,
+          MacosAppTechnology.metal,
         ]);
         expect(
           () => technologies.frameworks.add(MacosAppTechnology.flutter),

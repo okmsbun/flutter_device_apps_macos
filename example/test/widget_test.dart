@@ -105,6 +105,10 @@ void main() {
               'qtQuick',
               'godot',
               'dart',
+              'swift',
+              'appKit',
+              'swiftUI',
+              'libVlc',
             ];
           }
           if (call.method == 'getInstallSourceInfo') {
@@ -396,11 +400,11 @@ void main() {
     expect(
       find.text(
         'Frameworks: Flutter, Qt Core\n'
-        'Programming languages: Dart\n'
-        'UI toolkits: Flutter, Qt Quick\n'
+        'Programming languages: Dart, Swift\n'
+        'UI toolkits: Flutter, Qt Quick, AppKit, SwiftUI\n'
         'Game engines: Unity, Godot\n'
         'Runtimes: Java Runtime\n'
-        'Libraries: Qt Core, Qt Quick',
+        'Libraries: Qt Core, Qt Quick, libVLC',
       ),
       findsOneWidget,
     );

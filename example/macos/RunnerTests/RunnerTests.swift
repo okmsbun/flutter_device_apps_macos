@@ -170,10 +170,13 @@ class RunnerTests: XCTestCase {
     }
   }
 
-  private func machoHeader(cpu: cpu_type_t, subtype: cpu_subtype_t) -> Data {
+  private func machoHeader(
+    cpu: cpu_type_t, subtype: cpu_subtype_t, commands: [Data] = []
+  ) -> Data {
     var header = mach_header_64(
       magic: MH_MAGIC_64, cputype: cpu, cpusubtype: subtype, filetype: UInt32(MH_EXECUTE),
-      ncmds: 0, sizeofcmds: 0, flags: 0, reserved: 0
+      ncmds: UInt32(commands.count), sizeofcmds: UInt32(commands.reduce(0) { $0 + $1.count }),
+      flags: 0, reserved: 0
     )
     return withUnsafeBytes(of: &header) { Data($0) }
   }
@@ -190,6 +193,13 @@ class RunnerTests: XCTestCase {
     let url = try app("UniversalApp.app")
     let arm = machoHeader(cpu: CPU_TYPE_ARM64, subtype: CPU_SUBTYPE_ARM64_ALL)
     let intel = machoHeader(cpu: CPU_TYPE_X86_64, subtype: CPU_SUBTYPE_X86_64_ALL)
+    try universalMachO(arm: arm, intel: intel)
+      .write(to: url.appendingPathComponent("Contents/MacOS/Executable"))
+    let apps = try scan(AppListOptions(includeArchitectures: true))
+    XCTAssertEqual(apps.first?["supportedArchitectures"] as? [String], ["arm64", "x86_64"])
+  }
+
+  private func universalMachO(arm: Data, intel: Data) -> Data {
     var binary = Data()
     func word(_ value: UInt32) {
       var bigEndian = value.bigEndian
@@ -197,23 +207,118 @@ class RunnerTests: XCTestCase {
     }
     word(FAT_MAGIC)
     word(2)
-    for (cpu, subtype, offset) in [
-      (CPU_TYPE_ARM64, CPU_SUBTYPE_ARM64_ALL, UInt32(4096)),
-      (CPU_TYPE_X86_64, CPU_SUBTYPE_X86_64_ALL, UInt32(8192)),
+    for (cpu, subtype, offset, slice) in [
+      (CPU_TYPE_ARM64, CPU_SUBTYPE_ARM64_ALL, UInt32(4096), arm),
+      (CPU_TYPE_X86_64, CPU_SUBTYPE_X86_64_ALL, UInt32(8192), intel),
     ] {
       word(UInt32(bitPattern: cpu))
       word(UInt32(bitPattern: subtype))
       word(offset)
-      word(UInt32(arm.count))
+      word(UInt32(slice.count))
       word(12)
     }
     binary.append(Data(repeating: 0, count: 4096 - binary.count))
     binary.append(arm)
     binary.append(Data(repeating: 0, count: 8192 - binary.count))
     binary.append(intel)
-    try binary.write(to: url.appendingPathComponent("Contents/MacOS/Executable"))
-    let apps = try scan(AppListOptions(includeArchitectures: true))
-    XCTAssertEqual(apps.first?["supportedArchitectures"] as? [String], ["arm64", "x86_64"])
+    return binary
+  }
+
+  private func dylibCommand(_ dependency: String, kind: UInt32 = UInt32(LC_LOAD_DYLIB)) -> Data {
+    let name = Data(dependency.utf8)
+    let headerSize = MemoryLayout<dylib_command>.size
+    let size = (headerSize + name.count + 8) & ~7
+    let words = [kind, UInt32(size), UInt32(headerSize), 0, 0, 0]
+    return words.withUnsafeBytes { Data($0) } + name
+      + Data(repeating: 0, count: size - headerSize - name.count)
+  }
+
+  func testTechnologyDetectionReadsMachOMetadataFromBothArchitectures() throws {
+    let url = try app("Universal.app")
+    let executable = url.appendingPathComponent("Contents/MacOS/Executable")
+    let scanner = MacosAppScanner(searchDirectories: directories)
+    let target = AppLookupTarget.appPath(url.path)
+    let armCommands = [
+      dylibCommand("/System/Library/Frameworks/AppKit.framework/Versions/C/AppKit"),
+      dylibCommand("@rpath/libvlc.5.dylib"),
+      dylibCommand("@rpath/libvlc-helper.dylib"),
+      dylibCommand("@rpath/SwiftUI.framework/Other"),
+      dylibCommand("@rpath/libswiftCore.dylib"),
+      dylibCommand("@rpath/libcoreclr.dylib", kind: UInt32(LC_ID_DYLIB)),
+    ]
+    let arm = machoHeader(cpu: CPU_TYPE_ARM64, subtype: CPU_SUBTYPE_ARM64_ALL, commands: armCommands)
+      + armCommands.reduce(into: Data()) { $0.append($1) }
+    try arm.write(to: executable)
+    XCTAssertEqual(
+      try scanner.detectAppTechnologies(target: target, includeAdditionalTechnologies: true),
+      ["appKit", "libVlc"]
+    )
+
+    let swiftUI = dylibCommand(
+      "/System/Library/Frameworks/SwiftUI.framework/Versions/A/SwiftUI",
+      kind: UInt32(LC_LOAD_WEAK_DYLIB)
+    )
+    let buildWords = [UInt32(LC_BUILD_VERSION), 24, UInt32(PLATFORM_MACCATALYST), 0, 0, 0]
+    let buildVersion = buildWords.withUnsafeBytes { Data($0) }
+    let segmentSize = MemoryLayout<segment_command_64>.size
+    let commandSize = segmentSize + MemoryLayout<section_64>.size
+    let swiftOffset = MemoryLayout<mach_header_64>.size + swiftUI.count + buildVersion.count + commandSize
+    var segment = Data(repeating: 0, count: commandSize)
+    func writeWord(_ value: UInt32, at offset: Int) {
+      withUnsafeBytes(of: value) { segment.replaceSubrange(offset..<(offset + 4), with: $0) }
+    }
+    writeWord(UInt32(LC_SEGMENT_64), at: 0)
+    writeWord(UInt32(commandSize), at: 4)
+    segment.replaceSubrange(8..<14, with: "__TEXT".utf8)
+    writeWord(1, at: 64)
+    let sectionName = "__swift5_types".utf8
+    segment.replaceSubrange(segmentSize..<(segmentSize + sectionName.count), with: sectionName)
+    segment.replaceSubrange((segmentSize + 16)..<(segmentSize + 22), with: "__TEXT".utf8)
+    writeWord(4, at: segmentSize + 40)
+    writeWord(UInt32(swiftOffset), at: segmentSize + 48)
+    let intel = machoHeader(
+      cpu: CPU_TYPE_X86_64, subtype: CPU_SUBTYPE_X86_64_ALL, commands: [swiftUI, buildVersion, segment]
+    ) + swiftUI + buildVersion + segment + Data([1, 0, 0, 0])
+
+    try universalMachO(arm: arm, intel: intel).write(to: executable)
+    XCTAssertEqual(
+      try scanner.detectAppTechnologies(target: target, includeAdditionalTechnologies: true),
+      ["appKit", "libVlc", "macCatalyst", "swift", "swiftUI"]
+    )
+    XCTAssertEqual(
+      try scanner.detectAppTechnologies(target: target, includeAdditionalTechnologies: false),
+      []
+    )
+  }
+
+  func testTechnologyDetectionKeepsBundleMatchesWhenExecutableCannotBeInspected() throws {
+    let url = try app("Editor.app")
+    let executable = url.appendingPathComponent("Contents/MacOS/Executable")
+    let runtime = url.appendingPathComponent("Contents/Frameworks/UnityPlayer.dylib")
+    try fm.createDirectory(at: runtime.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try Data().write(to: runtime)
+    let valid = dylibCommand("@rpath/libvlc.dylib")
+    let invalidWords = [UInt32(LC_LOAD_DYLIB), 4]
+    let invalid = invalidWords.withUnsafeBytes { Data($0) }
+    let header = machoHeader(cpu: CPU_TYPE_ARM64, subtype: CPU_SUBTYPE_ARM64_ALL, commands: [valid, invalid])
+    try (header + valid + invalid).write(to: executable)
+
+    let scanner = MacosAppScanner(searchDirectories: directories)
+    let target = AppLookupTarget.appPath(url.path)
+    XCTAssertEqual(
+      try scanner.detectAppTechnologies(target: target, includeAdditionalTechnologies: true),
+      ["unity"]
+    )
+
+    let outside = root.appendingPathComponent("OutsideExecutable")
+    try (machoHeader(cpu: CPU_TYPE_ARM64, subtype: CPU_SUBTYPE_ARM64_ALL, commands: [valid]) + valid)
+      .write(to: outside)
+    try fm.removeItem(at: executable)
+    try fm.createSymbolicLink(at: executable, withDestinationURL: outside)
+    XCTAssertEqual(
+      try scanner.detectAppTechnologies(target: target, includeAdditionalTechnologies: true),
+      ["unity"]
+    )
   }
 
   func testScriptArchitecturesAndUnsignedTeamIDsRemainUnknown() throws {

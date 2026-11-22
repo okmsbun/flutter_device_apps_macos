@@ -152,8 +152,10 @@ unavailable. They inspect the selected bundle without scanning discovery roots.
   files under `Contents/Frameworks` and for a bundled JVM under `Contents/runtime`
   or `Contents/jbr`. Godot checks the header of
   `Contents/Resources/<CFBundleExecutable>.pck`. Dart checks the Kernel header
-  in the bundled Flutter assets. Matches describe code and dependencies packaged
-  in the selected app. Empty categories indicate no supported marker. See the
+  in bundled Flutter assets or AOT snapshot symbols in `App.framework`.
+  The main executable contributes direct Mach-O dependencies, Swift compiler
+  metadata, and the Mac Catalyst build platform across its 64-bit slices.
+  Empty categories indicate no supported marker. See the
   [supported technologies](../README.md#detect-packaged-app-technologies).
   The deprecated `detectAppFrameworks` retains its original flat result.
 - `getInstallSourceInfo` uses the `Contents/_MASReceipt/receipt` file as a
